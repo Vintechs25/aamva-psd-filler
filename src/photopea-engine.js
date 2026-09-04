@@ -190,14 +190,23 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
     if (w > 0 && h > 0) {
       const pCanvas = createCanvas(w, h);
       const pCtx = pCanvas.getContext('2d');
-      pCtx.fillStyle = '#f8fafc';
-      pCtx.fillRect(0, 0, w, h);
       const scale = Math.max(w / userPhotoImg.width, h / userPhotoImg.height);
       const dw = userPhotoImg.width * scale;
       const dh = userPhotoImg.height * scale;
       pCtx.drawImage(userPhotoImg, (w - dw)/2, (h - dh)/2, dw, dh);
       photoBigLayer.canvas = pCanvas;
+      photoBigLayer.opacity = 0.98; // Ensure rich, vivid portrait without background bleed
       console.log(`[PhotopeaEngine] Updated portrait layer: ${photoBigLayer.name} (${w}x${h})`);
+    }
+  }
+
+  // Calibrate facial security overlay strength (reduce gray/washed haze while keeping security pattern)
+  const photoGroup = findLayerInPsd(frontGroup || psd, 'Photo');
+  if (photoGroup && photoGroup.children) {
+    const photoOverlay = photoGroup.children.find(c => c.name.toLowerCase() === 'dont touch');
+    if (photoOverlay) {
+      photoOverlay.opacity = 0.22; // Reduced from 50% to 22% for clear, natural facial skin
+      console.log('[PhotopeaEngine] Calibrated facial security pattern opacity to 22% (clear & natural face)');
     }
   }
 
@@ -215,28 +224,35 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
       const dh = userPhotoImg.height * scale;
       gCtx.drawImage(userPhotoImg, (w - dw)/2, (h - dh)/2, dw, dh);
 
-      // High-key 38% alpha grayscale
+      // Clean, contrasted grayscale with solid alpha
       const imgData = gCtx.getImageData(0, 0, w, h);
       for (let i = 0; i < imgData.data.length; i += 4) {
         const avg = 0.299 * imgData.data[i] + 0.587 * imgData.data[i+1] + 0.114 * imgData.data[i+2];
-        const highKey = Math.min(255, Math.round(avg * 1.15));
-        imgData.data[i] = highKey;
-        imgData.data[i+1] = highKey;
-        imgData.data[i+2] = highKey;
-        imgData.data[i+3] = Math.round(imgData.data[i+3] * 0.38);
+        const contrasted = Math.max(0, Math.min(255, Math.round((avg - 128) * 1.25 + 128)));
+        imgData.data[i] = contrasted;
+        imgData.data[i+1] = contrasted;
+        imgData.data[i+2] = contrasted;
+        imgData.data[i+3] = 255;
       }
       gCtx.putImageData(imgData, 0, 0);
       photoGhostLayer.canvas = gCanvas;
+      photoGhostLayer.opacity = 0.62; // 62% semi-transparent, cleanly visible
       console.log(`[PhotopeaEngine] Updated ghost portrait layer: ${photoGhostLayer.name} (${w}x${h})`);
     }
   }
 
-  // Place Signature
+  // Place Signature - accurately resolve visible pixel signature layer
   const sigTargetName = schema.sides?.front?.signaturePlacement?.layerName || 'Signature';
-  let sigLayer = findLayerInPsd(frontGroup || psd, sigTargetName);
-  if (sigLayer && sigLayer.children) {
-    sigLayer = sigLayer.children.find(c => (c.visible !== false) && !c.hidden && c.canvas && !c.text) || sigLayer;
+  const sigGroup = findLayerInPsd(frontGroup || psd, 'Signatue') || findLayerInPsd(frontGroup || psd, 'Signature');
+  let sigLayer = null;
+  if (sigGroup && sigGroup.children) {
+    sigLayer = sigGroup.children.find(c => !c.hidden && !c.text && c.canvas)
+            || sigGroup.children.find(c => !c.text && c.canvas)
+            || sigGroup.children[sigGroup.children.length - 1];
+  } else {
+    sigLayer = findLayerInPsd(frontGroup || psd, sigTargetName);
   }
+
   if (sigLayer && userSigImg) {
     const w = (sigLayer.right || 0) - (sigLayer.left || 0);
     const h = (sigLayer.bottom || 0) - (sigLayer.top || 0);
@@ -305,7 +321,12 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
   console.log(`[PhotopeaEngine] PSD ready: ${Math.round(preparedPsdBytes.length / 1024)} KB`);
 
   // 4. Build text operations list for Photopea ExtendScript
-  const cleanName = (s) => String(s || '').split('/').pop().trim();
+  const cleanName = (s) => {
+    const str = String(s || '').trim();
+    if (str.includes(' / ')) return str.split(' / ').pop().trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return str;
+    return str;
+  };
   const frontMappings = schema.sides?.front?.fieldMappings || {};
   const backMappings = schema.sides?.back?.fieldMappings || {};
 
@@ -318,11 +339,11 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
         const city = cleanAamvaText(formData.DAI || formData.city || '');
         const state = cleanAamvaText(formData.DAJ || formData.state || 'TX');
         const zip = cleanAamvaText(formData.DAK || formData.zip || '').slice(0, 5);
-        val = `${val}\\r${city}, ${state} ${zip}`.trim();
+        val = `${val}\r${city}, ${state} ${zip}`.trim();
       }
       frontTextOps.push({
         layerName,
-        newText: String(val).replace(/"/g, '\\"').replace(/\n/g, '\\r')
+        newText: String(val)
       });
     }
   }
@@ -379,15 +400,17 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
 
   const bridgeHtml = `<!DOCTYPE html>
 <html>
-<head><title>Photopea Native Renderer</title></head>
-<body>
-  <iframe id="pp" src="${ppUrl}" style="width:1200px; height:900px; border:none;"></iframe>
+<head>
+  <title>Photopea Native Renderer</title>
   <script>
     window.isReady = false;
-    window.addEventListener('message', (e) => {
-      if (e.data === 'done' && !window.isReady) window.isReady = true;
+    window.addEventListener('message', function(e) {
+      if (e.data === 'done') window.isReady = true;
     });
   </script>
+</head>
+<body>
+  <iframe id="pp" src="${ppUrl}" style="width:1200px; height:900px; border:none;"></iframe>
 </body>
 </html>`;
 
@@ -409,30 +432,48 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
 
   try {
     const page = await browser.newPage();
+    page.on('console', msg => console.log('[ChromePage]', msg.text()));
     await page.goto(`http://127.0.0.1:${port}`, { timeout: 60000, waitUntil: 'domcontentloaded' });
     console.log('[PhotopeaEngine] Waiting for Photopea initialization...');
-    await page.waitForFunction(() => window.isReady === true, { timeout: 45000 });
+    try {
+      await page.waitForFunction(() => window.isReady === true, { timeout: 60000 });
+    } catch (e) {
+      console.log('[PhotopeaEngine] Handshake ping fallback...');
+      await page.evaluate(() => new Promise((resolve) => {
+        const iframe = document.getElementById('pp');
+        const h = (ev) => {
+          if (ev.data === 'done') {
+            window.removeEventListener('message', h);
+            resolve();
+          }
+        };
+        window.addEventListener('message', h);
+        iframe.contentWindow.postMessage('app.echo("ready");', '*');
+        setTimeout(resolve, 8000);
+      }));
+    }
     console.log('[PhotopeaEngine] Photopea ready!');
 
-    // 6. Send PSD buffer to Photopea
+    // 6. Send PSD buffer to Photopea (atomic listener + postMessage)
     console.log('[PhotopeaEngine] Sending PSD buffer to Photopea...');
     await page.evaluate((base64) => {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      document.getElementById('pp').contentWindow.postMessage(bytes.buffer, '*');
-    }, preparedPsdBytes.toString('base64'));
+      return new Promise((res, rej) => {
+        const timer = setTimeout(() => rej(new Error('Timeout opening PSD in Photopea')), 90000);
+        const h = (e) => {
+          if (e.data === 'done') {
+            window.removeEventListener('message', h);
+            clearTimeout(timer);
+            res();
+          }
+        };
+        window.addEventListener('message', h);
 
-    await page.evaluate(() => new Promise((res, rej) => {
-      const h = (e) => {
-        if (e.data === 'done') {
-          window.removeEventListener('message', h);
-          res();
-        }
-      };
-      window.addEventListener('message', h);
-      setTimeout(() => rej(new Error('Timeout opening PSD in Photopea')), 60000);
-    }));
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        document.getElementById('pp').contentWindow.postMessage(bytes.buffer, '*');
+      });
+    }, preparedPsdBytes.toString('base64'));
     console.log('[PhotopeaEngine] PSD opened in Photopea successfully!');
 
     // 7. Render Front PNG
@@ -442,9 +483,11 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
         var doc = app.activeDocument;
         function find(p, n) {
           if (!p || !p.layers) return null;
-          var leaf = String(n).split('/').pop().replace(/^\\s+|\\s+$/g, '').toLowerCase();
+          var tName = String(n).toLowerCase();
+          if (tName.indexOf(' / ') !== -1) tName = tName.split(' / ').pop();
+          tName = tName.replace(/^\\s+|\\s+$/g, '');
           for (var i = 0; i < p.layers.length; i++) {
-            if (p.layers[i].name.toLowerCase() === leaf) return p.layers[i];
+            if (p.layers[i].name.toLowerCase() === tName) return p.layers[i];
             if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
               var f = find(p.layers[i], n);
               if (f) return f;
@@ -461,14 +504,69 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
         var fBorder = find(front || doc, "border");
         if (fBorder) fBorder.visible = false;
 
+        // Calibrate Photo Opacity and Facial Security Pattern
+        try {
+          var photoGroup = find(front || doc, "Photo");
+          if (photoGroup) {
+            var photoOverlay = find(photoGroup, "Dont touch");
+            if (photoOverlay) { try { photoOverlay.opacity = 22; } catch(e) {} }
+            var photoBig = find(photoGroup, "Photo Big");
+            if (photoBig) { try { photoBig.opacity = 98; photoBig.visible = true; } catch(e) {} }
+            var photoGhost = find(photoGroup, "Photo Ghost");
+            if (photoGhost) { try { photoGhost.opacity = 62; photoGhost.visible = true; } catch(e) {} }
+          }
+        } catch(e) {}
+
         // Update front text layers
         var ops = ${JSON.stringify(frontTextOps)};
-        for (var j = 0; j < ops.length; j++) {
-          var l = find(front || doc, ops[j].layerName);
-          if (l && l.kind == LayerKind.TEXT) {
-            l.textItem.contents = ops[j].newText;
+        var dataGroup = find(front || doc, "Data") || front || doc;
+
+        function updateAllMatching(p, name, text) {
+          if (!p || !p.layers) return 0;
+          var count = 0;
+          var tName = String(name).toLowerCase().replace(/^\s+|\s+$/g, '');
+          for (var i = 0; i < p.layers.length; i++) {
+            var lyr = p.layers[i];
+            if (lyr.name.toLowerCase() === tName && lyr.kind == LayerKind.TEXT) {
+              lyr.textItem.contents = text;
+              count++;
+            }
+            if (lyr.typename === "LayerSet" || (lyr.layers && lyr.layers.length > 0)) {
+              count += updateAllMatching(lyr, name, text);
+            }
           }
+          return count;
         }
+
+        for (var j = 0; j < ops.length; j++) {
+          try {
+            var updated = updateAllMatching(dataGroup, ops[j].layerName, ops[j].newText);
+            if (updated === 0) {
+              updateAllMatching(front || doc, ops[j].layerName, ops[j].newText);
+            }
+          } catch(e) {}
+        }
+
+        // Explicitly guarantee both main DOB and ghost photo DOB are synchronized
+        try {
+          var dobVal = "${formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob))}";
+          if (dataGroup && dataGroup.layers) {
+            for (var k = 0; k < dataGroup.layers.length; k++) {
+              var dl = dataGroup.layers[k];
+              if (dl.kind == LayerKind.TEXT) {
+                var dName = dl.name.toLowerCase();
+                // Main DOB layer (bounds around [1185, 724])
+                if (dName === "09/21/1990" || (dl.bounds && dl.bounds[0] > 1100 && dl.bounds[0] < 1500 && dl.bounds[1] > 650 && dl.bounds[1] < 850)) {
+                  dl.textItem.contents = dobVal;
+                }
+                // Ghost DOB layer over ghost photo (bounds around [2250, 1339])
+                if (dl.bounds && dl.bounds[0] > 2000 && dl.bounds[1] > 1300) {
+                  dl.textItem.contents = dobVal;
+                }
+              }
+            }
+          }
+        } catch(e) {}
 
         // Ensure border remains hidden
         if (fBorder) fBorder.visible = false;

@@ -101,11 +101,11 @@ async function prepareGhostDataUri(imageInput, targetW = 237, targetH = 272) {
   const data = imgData.data;
   for (let i = 0; i < data.length; i += 4) {
     const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const highKey = Math.min(255, Math.round(avg * 1.15));
-    data[i] = highKey;
-    data[i + 1] = highKey;
-    data[i + 2] = highKey;
-    data[i + 3] = Math.round(data[i + 3] * 0.38);
+    const contrasted = Math.max(0, Math.min(255, Math.round((avg - 128) * 1.25 + 128)));
+    data[i] = contrasted;
+    data[i + 1] = contrasted;
+    data[i + 2] = contrasted;
+    data[i + 3] = 255;
   }
   ctx.putImageData(imgData, 0, 0);
   return canvas.toDataURL('image/png');
