@@ -26,6 +26,10 @@
       }
     };
   </script>
+  <!-- Google Fonts for Realistic Signature Generator -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Caveat:wght@600&family=Dancing+Script:wght@600&family=Great+Vibes&family=Homemade+Apple&family=Marck+Script&family=Monsieur+La+Doulaise&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -593,35 +597,222 @@
           </div>
         </div>
 
-        <!-- Zone VI Signature Studio -->
+        <!-- Zone VI: Integrated Signature Studio -->
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
-          <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
             <div>
               <h3 class="text-base font-bold text-white flex items-center gap-2">
                 <i data-lucide="pen-tool" class="w-5 h-5 text-blue-400"></i>
-                Zone VI: Cardholder Signature
+                Zone VI: Cardholder Signature Studio
               </h3>
-              <p class="text-xs text-slate-400 mt-0.5">Draw signature live on pad or upload a transparent PNG signature.</p>
+              <p class="text-xs text-slate-400 mt-0.5">Draw signature with mouse/touch, auto-generate realistic cursive from name, or upload an image.</p>
             </div>
-            <button type="button" id="btnClearSignature" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 transition">Clear Pad</button>
+            
+            <!-- Signature Method Tabs -->
+            <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button type="button" id="tabBtnSigDraw" class="sig-tab-btn active px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 bg-blue-600 text-white shadow-sm">
+                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                <span>Draw Pad</span>
+              </button>
+              <button type="button" id="tabBtnSigGenerate" class="sig-tab-btn px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 text-slate-400 hover:text-white">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>Auto-Generate</span>
+              </button>
+              <button type="button" id="tabBtnSigUpload" class="sig-tab-btn px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 text-slate-400 hover:text-white">
+                <i data-lucide="upload" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>Upload</span>
+              </button>
+            </div>
           </div>
 
-          <div class="mt-4 space-y-4">
-            <!-- Interactive HTML5 Signature Canvas Pad -->
-            <div class="rounded-xl border border-slate-700 bg-white/5 p-1 relative">
-              <canvas id="sigCanvas" width="500" height="150" class="w-full h-36 bg-slate-950 rounded-lg cursor-crosshair touch-none"></canvas>
-              <div class="absolute bottom-3 left-4 pointer-events-none text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
-                Sign Above The Line ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          <!-- TAB 1: DRAW SIGNATURE PAD -->
+          <div id="sigPanelDraw" class="sig-panel mt-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-1">
+              <div class="flex items-center gap-3">
+                <!-- Color Selector -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[11px] text-slate-400">Ink:</span>
+                  <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                    <button type="button" data-color="#0f172a" class="sig-color-btn active w-5 h-5 rounded-full border-2 border-white bg-slate-900 shadow-sm" title="Deep Navy/Black"></button>
+                    <button type="button" data-color="#1d4ed8" class="sig-color-btn w-5 h-5 rounded-full border-2 border-transparent bg-blue-700 hover:scale-105 transition" title="Royal Blue"></button>
+                    <button type="button" data-color="#0369a1" class="sig-color-btn w-5 h-5 rounded-full border-2 border-transparent bg-sky-700 hover:scale-105 transition" title="Classic Blue"></button>
+                    <button type="button" data-color="#000000" class="sig-color-btn w-5 h-5 rounded-full border-2 border-transparent bg-black hover:scale-105 transition" title="Jet Black"></button>
+                  </div>
+                </div>
+                <!-- Stroke Width Selector -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[11px] text-slate-400">Width:</span>
+                  <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
+                    <button type="button" data-width="2" class="sig-width-btn px-2 py-0.5 rounded text-slate-400 hover:text-white">Fine</button>
+                    <button type="button" data-width="3.2" class="sig-width-btn active px-2 py-0.5 rounded bg-slate-800 text-white font-medium">Medium</button>
+                    <button type="button" data-width="4.8" class="sig-width-btn px-2 py-0.5 rounded text-slate-400 hover:text-white">Bold</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pad Action Buttons -->
+              <div class="flex items-center gap-2">
+                <button type="button" id="btnUndoSignature" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition flex items-center gap-1">
+                  <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
+                  Undo
+                </button>
+                <button type="button" id="btnClearSignature" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-rose-300 hover:text-rose-200 transition flex items-center gap-1">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+                  Clear
+                </button>
+                <button type="button" id="btnDownloadDrawnSig" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-blue-300 transition flex items-center gap-1">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  Download PNG
+                </button>
               </div>
             </div>
 
-            <!-- Alternative file upload -->
-            <div class="flex items-center justify-between pt-2">
-              <span class="text-xs text-slate-400">Or upload signature image:</span>
-              <input type="file" id="sigFileInput" accept="image/*" class="hidden">
-              <button type="button" onclick="document.getElementById('sigFileInput').click()" class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition flex items-center gap-1.5">
-                <i data-lucide="image" class="w-3.5 h-3.5 text-blue-400"></i>
-                Browse File
+            <!-- Canvas Drawing Area -->
+            <div class="rounded-xl border border-slate-700 bg-white/5 p-1 relative shadow-inner">
+              <canvas id="sigCanvas" width="600" height="160" class="w-full h-40 bg-slate-950 rounded-lg cursor-crosshair touch-none select-none block"></canvas>
+              <div class="absolute bottom-3 left-6 right-6 pointer-events-none flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-600 font-medium">
+                <span>Sign Above This Line ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</span>
+                <span class="text-slate-500 font-mono text-[9px]">ZONE VI</span>
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-400 flex items-center justify-between">
+              <span>Use mouse or touch to sign naturally. Smooth curve interpolation ensures crisp digital ink.</span>
+              <span id="sigStrokeCount" class="text-slate-500 font-mono text-[10px]">0 strokes</span>
+            </div>
+          </div>
+
+          <!-- TAB 2: AUTO-GENERATE SIGNATURE FROM NAME -->
+          <div id="sigPanelGenerate" class="sig-panel hidden mt-4 space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-slate-300 mb-1">Full Name for Signature</label>
+                <div class="flex gap-2">
+                  <input type="text" id="sigGenNameInput" placeholder="Enter Full Name (e.g. Brian Haag)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 focus:outline-none">
+                  <button type="button" id="btnSyncNameFromForm" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-blue-300 whitespace-nowrap transition flex items-center gap-1.5" title="Sync name from form fields">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    Sync Form
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">Handwriting Style</label>
+                <select id="sigGenFontSelect" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 focus:outline-none">
+                  <option value="Dancing Script" selected>Dancing Script (Modern Cursive)</option>
+                  <option value="Great Vibes">Great Vibes (Classic Calligraphy)</option>
+                  <option value="Caveat">Caveat (Natural Ink)</option>
+                  <option value="Sacramento">Sacramento (Connected Pen)</option>
+                  <option value="Alex Brush">Alex Brush (Flowing Flourish)</option>
+                  <option value="Homemade Apple">Homemade Apple (Authentic Ballpoint)</option>
+                  <option value="Parisienne">Parisienne (Classic French)</option>
+                  <option value="Satisfy">Satisfy (Expressive Brush)</option>
+                  <option value="Monsieur La Doulaise">Monsieur La Doulaise (Victorian Loops)</option>
+                  <option value="Marck Script">Marck Script (Quill Signature)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Style Modifiers & Options -->
+            <div class="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+              <div class="flex flex-wrap items-center gap-4 text-xs">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="chkSigUnderline" checked class="rounded border-slate-700 text-blue-600 focus:ring-0">
+                  <span class="text-slate-300">Flourish Underline Swoosh</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="chkSigInitialsOnly" class="rounded border-slate-700 text-blue-600 focus:ring-0">
+                  <span class="text-slate-300">Initials + Last Name</span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <span class="text-slate-400">Slant:</span>
+                  <input type="range" id="rngSigSlant" min="-12" max="12" value="-3" class="w-20 accent-blue-500 cursor-pointer">
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button type="button" id="btnRegenerateSig" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+                  <i data-lucide="dices" class="w-3.5 h-3.5"></i>
+                  Regenerate Variation
+                </button>
+                <button type="button" id="btnDownloadGeneratedSig" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition flex items-center gap-1">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  Download PNG
+                </button>
+              </div>
+            </div>
+
+            <!-- Auto-Generated Preview Canvas -->
+            <div class="rounded-xl border border-slate-700 bg-white/5 p-1 relative shadow-inner">
+              <canvas id="sigGenCanvas" width="600" height="160" class="w-full h-36 bg-slate-950 rounded-lg block"></canvas>
+            </div>
+          </div>
+
+          <!-- TAB 3: UPLOAD EXISTING SIGNATURE -->
+          <div id="sigPanelUpload" class="sig-panel hidden mt-4 space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <!-- Upload Area -->
+              <div id="sigUploadDropZone" class="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-xl p-5 text-center cursor-pointer transition bg-slate-950/40 hover:bg-blue-500/5 flex flex-col items-center justify-center min-h-[160px]">
+                <input type="file" id="sigFileInput" accept="image/*" class="hidden">
+                <div class="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-2">
+                  <i data-lucide="file-up" class="w-5 h-5"></i>
+                </div>
+                <div class="text-xs font-medium text-slate-200">Drag & drop signature image or <span class="text-blue-400 underline">browse</span></div>
+                <p class="text-[11px] text-slate-500 mt-1">Supports PNG, JPG, JPEG, WEBP. Paper backgrounds are automatically cleaned.</p>
+              </div>
+
+              <!-- Uploaded & Cleaned Preview -->
+              <div class="border border-slate-800 bg-slate-950/80 rounded-xl p-3 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-slate-300">Cleaned Signature (Transparent PNG)</span>
+                    <span id="sigUploadStatus" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">Waiting for upload</span>
+                  </div>
+                  <div class="rounded-lg bg-white/5 border border-slate-800 p-2 flex items-center justify-center h-28 overflow-hidden checkerboard-bg">
+                    <img id="sigUploadPreviewImg" src="" alt="Cleaned Signature" class="max-h-full max-w-full object-contain hidden">
+                    <span id="sigUploadPlaceholder" class="text-xs text-slate-600 italic">No image uploaded</span>
+                  </div>
+                </div>
+
+                <!-- Background Removal Controls -->
+                <div class="mt-3 pt-2 border-t border-slate-800/80 space-y-2 text-xs">
+                  <div class="flex items-center justify-between">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" id="chkAutoRemoveBg" checked class="rounded border-slate-700 text-emerald-600 focus:ring-0">
+                      <span class="text-slate-300 text-[11px]">Auto-remove paper background</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" id="chkNormalizeInk" checked class="rounded border-slate-700 text-blue-600 focus:ring-0">
+                      <span class="text-slate-300 text-[11px]">Crisp ink color</span>
+                    </label>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-slate-400 whitespace-nowrap">Paper Cutoff:</span>
+                    <input type="range" id="rngBgThreshold" min="120" max="240" value="190" class="w-full accent-emerald-500 cursor-pointer">
+                    <button type="button" id="btnDownloadUploadedSig" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 whitespace-nowrap transition flex items-center gap-1">
+                      <i data-lucide="download" class="w-3 h-3"></i>
+                      Download
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ACTIVE SIGNATURE SUMMARY / STATUS BAR -->
+          <div class="mt-4 pt-3 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-slate-400 font-medium">Active Signature for PSD:</span>
+              <span id="activeSigBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                <i data-lucide="check-circle" class="w-3 h-3 mr-1 text-blue-400"></i>
+                <span id="activeSigText">Default Signature</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <button type="button" id="btnDownloadActiveSig" class="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1">
+                <i data-lucide="download" class="w-3 h-3"></i>
+                Download Active Signature (.png)
+              </button>
+              <button type="button" id="btnResetActiveSig" class="text-xs text-slate-500 hover:text-slate-300 transition">
+                Reset
               </button>
             </div>
           </div>

@@ -51,9 +51,44 @@ document.addEventListener('DOMContentLoaded', () => {
   const photoPlaceholder = document.getElementById('photoPlaceholder');
   const chkAutoGhost = document.getElementById('chkAutoGhost');
 
+  // Signature Studio DOM Elements
+  const tabBtnSigDraw = document.getElementById('tabBtnSigDraw');
+  const tabBtnSigGenerate = document.getElementById('tabBtnSigGenerate');
+  const tabBtnSigUpload = document.getElementById('tabBtnSigUpload');
+  const sigPanelDraw = document.getElementById('sigPanelDraw');
+  const sigPanelGenerate = document.getElementById('sigPanelGenerate');
+  const sigPanelUpload = document.getElementById('sigPanelUpload');
+
   const sigCanvas = document.getElementById('sigCanvas');
-  const sigFileInput = document.getElementById('sigFileInput');
+  const btnUndoSignature = document.getElementById('btnUndoSignature');
   const btnClearSignature = document.getElementById('btnClearSignature');
+  const btnDownloadDrawnSig = document.getElementById('btnDownloadDrawnSig');
+  const sigStrokeCount = document.getElementById('sigStrokeCount');
+
+  const sigGenNameInput = document.getElementById('sigGenNameInput');
+  const btnSyncNameFromForm = document.getElementById('btnSyncNameFromForm');
+  const sigGenFontSelect = document.getElementById('sigGenFontSelect');
+  const chkSigUnderline = document.getElementById('chkSigUnderline');
+  const chkSigInitialsOnly = document.getElementById('chkSigInitialsOnly');
+  const rngSigSlant = document.getElementById('rngSigSlant');
+  const btnRegenerateSig = document.getElementById('btnRegenerateSig');
+  const btnDownloadGeneratedSig = document.getElementById('btnDownloadGeneratedSig');
+  const sigGenCanvas = document.getElementById('sigGenCanvas');
+
+  const sigUploadDropZone = document.getElementById('sigUploadDropZone');
+  const sigFileInput = document.getElementById('sigFileInput');
+  const sigUploadStatus = document.getElementById('sigUploadStatus');
+  const sigUploadPreviewImg = document.getElementById('sigUploadPreviewImg');
+  const sigUploadPlaceholder = document.getElementById('sigUploadPlaceholder');
+  const chkAutoRemoveBg = document.getElementById('chkAutoRemoveBg');
+  const chkNormalizeInk = document.getElementById('chkNormalizeInk');
+  const rngBgThreshold = document.getElementById('rngBgThreshold');
+  const btnDownloadUploadedSig = document.getElementById('btnDownloadUploadedSig');
+
+  const activeSigBadge = document.getElementById('activeSigBadge');
+  const activeSigText = document.getElementById('activeSigText');
+  const btnDownloadActiveSig = document.getElementById('btnDownloadActiveSig');
+  const btnResetActiveSig = document.getElementById('btnResetActiveSig');
 
   const barcodePreviewImg = document.getElementById('barcodePreviewImg');
   const barcodePayloadBox = document.getElementById('barcodePayloadBox');
@@ -126,6 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    if (stepNum === 3 && typeof window.__onEnterStep3 === 'function') {
+      window.__onEnterStep3();
+    }
     if (stepNum === 4) {
       updateBarcodePreview();
     }
@@ -260,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       console.warn('Init fetch failed, running offline defaults:', e);
     }
-    initSignaturePad();
+    initSignatureStudio();
   }
 
   function populateJurisdictions() {
@@ -866,94 +904,668 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Signature Pad Drawing
-  let isDrawing = false;
-  let lastX = 0;
-  let lastY = 0;
-  const ctx = sigCanvas.getContext('2d');
+  // --- Zone VI: Integrated Signature Studio ---
 
-  function initSignaturePad() {
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#38bdf8'; // Smooth bright blue signature stroke
+  // Helper: Trims transparent borders around a canvas, adding clean padding
+  function cropCanvasToContent(sourceCanvas, padding = 12) {
+    const sCtx = sourceCanvas.getContext('2d');
+    const w = sourceCanvas.width;
+    const h = sourceCanvas.height;
+    const imgData = sCtx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    let minX = w, minY = h, maxX = 0, maxY = 0;
+    let found = false;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        if (data[idx + 3] > 15) { // alpha > 15
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          found = true;
+        }
+      }
+    }
+
+    if (!found) return null;
+
+    minX = Math.max(0, minX - padding);
+    minY = Math.max(0, minY - padding);
+    maxX = Math.min(w - 1, maxX + padding);
+    maxY = Math.min(h - 1, maxY + padding);
+
+    const cropW = Math.max(1, maxX - minX + 1);
+    const cropH = Math.max(1, maxY - minY + 1);
+
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = cropW;
+    croppedCanvas.height = cropH;
+    const cCtx = croppedCanvas.getContext('2d');
+    cCtx.drawImage(sourceCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+    return croppedCanvas;
   }
 
-  function getCanvasCoords(e) {
-    const rect = sigCanvas.getBoundingClientRect();
-    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-    const scaleX = sigCanvas.width / rect.width;
-    const scaleY = sigCanvas.height / rect.height;
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
+  // Helper: Trigger browser download of transparent PNG
+  function downloadDataUrl(dataUrl, filename = 'signature.png') {
+    if (!dataUrl) {
+      alert('No signature available to download yet.');
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
-  sigCanvas.addEventListener('mousedown', (e) => {
-    isDrawing = true;
-    const { x, y } = getCanvasCoords(e);
-    lastX = x;
-    lastY = y;
-  });
+  function initSignatureStudio() {
+    // -------------------------------------------------------------
+    // Active Signature State & Updates
+    // -------------------------------------------------------------
+    function updateActiveSignature(dataUrl, sourceLabel) {
+      state.signatureBase64 = dataUrl;
+      state.signatureSource = sourceLabel;
+      if (activeSigText) {
+        activeSigText.textContent = sourceLabel || 'Custom Signature Active';
+      }
+      if (activeSigBadge) {
+        activeSigBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
+      }
+    }
 
-  sigCanvas.addEventListener('mousemove', (e) => {
-    if (!isDrawing) return;
-    const { x, y } = getCanvasCoords(e);
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    lastX = x;
-    lastY = y;
-    state.signatureBase64 = sigCanvas.toDataURL('image/png');
-  });
+    function resetActiveSignature() {
+      state.signatureBase64 = null;
+      state.signatureSource = null;
+      if (activeSigText) {
+        activeSigText.textContent = 'Default Template Signature';
+      }
+      if (activeSigBadge) {
+        activeSigBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30';
+      }
+    }
 
-  window.addEventListener('mouseup', () => { isDrawing = false; });
+    if (btnResetActiveSig) {
+      btnResetActiveSig.addEventListener('click', () => {
+        resetActiveSignature();
+        clearDrawnPad();
+        if (sigUploadPreviewImg) sigUploadPreviewImg.classList.add('hidden');
+        if (sigUploadPlaceholder) sigUploadPlaceholder.classList.remove('hidden');
+        if (sigUploadStatus) sigUploadStatus.textContent = 'Waiting for upload';
+      });
+    }
 
-  // Touch Support for Signature
-  sigCanvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    isDrawing = true;
-    const { x, y } = getCanvasCoords(e);
-    lastX = x;
-    lastY = y;
-  }, { passive: false });
+    if (btnDownloadActiveSig) {
+      btnDownloadActiveSig.addEventListener('click', () => {
+        if (!state.signatureBase64) {
+          alert('No custom signature active yet. Draw, generate, or upload a signature first.');
+          return;
+        }
+        downloadDataUrl(state.signatureBase64, 'cardholder_signature.png');
+      });
+    }
 
-  sigCanvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (!isDrawing) return;
-    const { x, y } = getCanvasCoords(e);
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    lastX = x;
-    lastY = y;
-    state.signatureBase64 = sigCanvas.toDataURL('image/png');
-  }, { passive: false });
+    // -------------------------------------------------------------
+    // Method Tabs Switching
+    // -------------------------------------------------------------
+    const tabs = [
+      { btn: tabBtnSigDraw, panel: sigPanelDraw, id: 'draw' },
+      { btn: tabBtnSigGenerate, panel: sigPanelGenerate, id: 'generate' },
+      { btn: tabBtnSigUpload, panel: sigPanelUpload, id: 'upload' }
+    ];
 
-  btnClearSignature.addEventListener('click', () => {
-    ctx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
-    state.signatureBase64 = null;
-  });
+    function activateTab(tabId) {
+      tabs.forEach(t => {
+        if (!t.btn || !t.panel) return;
+        if (t.id === tabId) {
+          t.btn.className = 'sig-tab-btn active px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 bg-blue-600 text-white shadow-sm';
+          t.panel.classList.remove('hidden');
+        } else {
+          t.btn.className = 'sig-tab-btn px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 text-slate-400 hover:text-white';
+          t.panel.classList.add('hidden');
+        }
+      });
+      if (tabId === 'generate') {
+        renderAutoGeneratedSignature();
+      }
+      if (window.lucide) lucide.createIcons();
+    }
 
-  sigFileInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) {
+    if (tabBtnSigDraw) tabBtnSigDraw.addEventListener('click', () => activateTab('draw'));
+    if (tabBtnSigGenerate) tabBtnSigGenerate.addEventListener('click', () => activateTab('generate'));
+    if (tabBtnSigUpload) tabBtnSigUpload.addEventListener('click', () => activateTab('upload'));
+
+    // -------------------------------------------------------------
+    // 1. SIGNATURE PAD (DRAWING)
+    // -------------------------------------------------------------
+    let strokes = [];
+    let currentStroke = null;
+    let isDrawing = false;
+    let penColor = '#0f172a';
+    let penWidth = 3.2;
+
+    const padCtx = sigCanvas ? sigCanvas.getContext('2d') : null;
+
+    // Ink Color Selection
+    const colorBtns = document.querySelectorAll('.sig-color-btn');
+    colorBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        colorBtns.forEach(b => b.classList.remove('border-white', 'shadow-sm'));
+        btn.classList.add('border-white', 'shadow-sm');
+        penColor = btn.getAttribute('data-color') || '#0f172a';
+      });
+    });
+
+    // Stroke Width Selection
+    const widthBtns = document.querySelectorAll('.sig-width-btn');
+    widthBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        widthBtns.forEach(b => {
+          b.classList.remove('active', 'bg-slate-800', 'text-white', 'font-medium');
+          b.classList.add('text-slate-400');
+        });
+        btn.classList.add('active', 'bg-slate-800', 'text-white', 'font-medium');
+        btn.classList.remove('text-slate-400');
+        penWidth = parseFloat(btn.getAttribute('data-width')) || 3.2;
+      });
+    });
+
+    function getCanvasCoords(e) {
+      const rect = sigCanvas.getBoundingClientRect();
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      const scaleX = sigCanvas.width / rect.width;
+      const scaleY = sigCanvas.height / rect.height;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function drawSingleStroke(ctx, stroke) {
+      if (!stroke || !stroke.points || stroke.points.length === 0) return;
+      ctx.strokeStyle = stroke.color || '#0f172a';
+      ctx.lineWidth = stroke.width || 3.2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const pts = stroke.points;
+      if (pts.length === 1) {
+        ctx.beginPath();
+        ctx.arc(pts[0].x, pts[0].y, (stroke.width || 3.2) / 2, 0, Math.PI * 2);
+        ctx.fillStyle = stroke.color || '#0f172a';
+        ctx.fill();
+        return;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+
+      for (let i = 1; i < pts.length - 1; i++) {
+        const midX = (pts[i].x + pts[i + 1].x) / 2;
+        const midY = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+      }
+
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+      ctx.stroke();
+    }
+
+    function redrawPad() {
+      if (!padCtx) return;
+      padCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+      strokes.forEach(s => drawSingleStroke(padCtx, s));
+      if (sigStrokeCount) {
+        sigStrokeCount.textContent = `${strokes.length} stroke${strokes.length === 1 ? '' : 's'}`;
+      }
+    }
+
+    function commitDrawnSignature() {
+      if (!padCtx) return;
+      redrawPad();
+      if (strokes.length > 0) {
+        const cropped = cropCanvasToContent(sigCanvas, 14);
+        if (cropped) {
+          const dataUrl = cropped.toDataURL('image/png');
+          updateActiveSignature(dataUrl, 'Drawn on Pad');
+        }
+      } else {
+        resetActiveSignature();
+      }
+    }
+
+    function startDrawing(e) {
+      if (!padCtx) return;
+      isDrawing = true;
+      const pt = getCanvasCoords(e);
+      currentStroke = {
+        points: [pt],
+        color: penColor,
+        width: penWidth
+      };
+      drawSingleStroke(padCtx, currentStroke);
+    }
+
+    function moveDrawing(e) {
+      if (!isDrawing || !currentStroke || !padCtx) return;
+      const pt = getCanvasCoords(e);
+      currentStroke.points.push(pt);
+      redrawPad();
+      drawSingleStroke(padCtx, currentStroke);
+    }
+
+    function stopDrawing() {
+      if (!isDrawing) return;
+      isDrawing = false;
+      if (currentStroke && currentStroke.points.length > 0) {
+        strokes.push(currentStroke);
+        currentStroke = null;
+        commitDrawnSignature();
+      }
+    }
+
+    function clearDrawnPad() {
+      strokes = [];
+      currentStroke = null;
+      if (padCtx) padCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+      if (sigStrokeCount) sigStrokeCount.textContent = '0 strokes';
+    }
+
+    function undoDrawnStroke() {
+      if (strokes.length > 0) {
+        strokes.pop();
+        commitDrawnSignature();
+      }
+    }
+
+    if (sigCanvas) {
+      sigCanvas.addEventListener('mousedown', startDrawing);
+      sigCanvas.addEventListener('mousemove', moveDrawing);
+      window.addEventListener('mouseup', stopDrawing);
+
+      sigCanvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startDrawing(e);
+      }, { passive: false });
+
+      sigCanvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        moveDrawing(e);
+      }, { passive: false });
+
+      window.addEventListener('touchend', stopDrawing);
+    }
+
+    if (btnUndoSignature) btnUndoSignature.addEventListener('click', undoDrawnStroke);
+    if (btnClearSignature) {
+      btnClearSignature.addEventListener('click', () => {
+        clearDrawnPad();
+        if (state.signatureSource === 'Drawn on Pad') resetActiveSignature();
+      });
+    }
+
+    if (btnDownloadDrawnSig) {
+      btnDownloadDrawnSig.addEventListener('click', () => {
+        if (strokes.length === 0) {
+          alert('Draw a signature on the pad before downloading.');
+          return;
+        }
+        const cropped = cropCanvasToContent(sigCanvas, 14);
+        downloadDataUrl(cropped ? cropped.toDataURL('image/png') : sigCanvas.toDataURL('image/png'), 'drawn_signature.png');
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 2. AUTO-GENERATE SIGNATURE FROM NAME
+    // -------------------------------------------------------------
+    let genVariation = 0;
+
+    function getFullNameFromForm() {
+      const first = (document.getElementById('field_DAC')?.value || '').trim();
+      const middle = (document.getElementById('field_DAD')?.value || '').trim();
+      const last = (document.getElementById('field_DCS')?.value || '').trim();
+      if (first || last) {
+        return [first, middle, last].filter(Boolean).join(' ');
+      }
+      return 'Brian Haag';
+    }
+
+    function syncNameFromForm() {
+      const name = getFullNameFromForm();
+      if (sigGenNameInput) sigGenNameInput.value = name;
+      renderAutoGeneratedSignature();
+    }
+
+    if (btnSyncNameFromForm) {
+      btnSyncNameFromForm.addEventListener('click', syncNameFromForm);
+    }
+
+    // Draw stylized flourish underline under cursive signature
+    function drawUnderlineFlourish(ctx, startX, startY, width, styleIndex) {
+      ctx.save();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const endX = startX + width + 24;
+      const midX = startX + width * 0.55;
+
+      switch (styleIndex % 5) {
+        case 0: {
+          // Dynamic sweeping swoosh tapering to the right
+          ctx.lineWidth = 3.2;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.bezierCurveTo(startX + width * 0.25, startY + 12, midX, startY + 8, endX, startY - 4);
+          ctx.stroke();
+
+          // Subtle secondary flick
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(startX + width * 0.35, startY + 14);
+          ctx.quadraticCurveTo(midX + 20, startY + 12, endX - 10, startY + 2);
+          ctx.stroke();
+          break;
+        }
+        case 1: {
+          // Loop-de-loop signature underline
+          ctx.lineWidth = 2.8;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.quadraticCurveTo(startX + width * 0.4, startY + 14, startX + width * 0.7, startY + 10);
+          ctx.bezierCurveTo(startX + width * 0.85, startY + 8, startX + width * 0.9, startY - 6, startX + width * 0.8, startY - 2);
+          ctx.quadraticCurveTo(startX + width * 0.72, startY + 12, endX + 10, startY + 6);
+          ctx.stroke();
+          break;
+        }
+        case 2: {
+          // Classic double wave flourish
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.bezierCurveTo(startX + width * 0.2, startY + 10, startX + width * 0.4, startY - 2, midX, startY + 8);
+          ctx.bezierCurveTo(startX + width * 0.7, startY + 14, startX + width * 0.85, startY - 2, endX, startY + 6);
+          ctx.stroke();
+          break;
+        }
+        case 3: {
+          // Sharp modern cursive strike with accent dot
+          ctx.lineWidth = 3.0;
+          ctx.beginPath();
+          ctx.moveTo(startX + 10, startY + 6);
+          ctx.lineTo(endX - 8, startY + 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(endX + 4, startY + 2, 2.2, 0, Math.PI * 2);
+          ctx.fillStyle = '#0f172a';
+          ctx.fill();
+          break;
+        }
+        case 4:
+        default: {
+          // Flowing italic glide
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY + 4);
+          ctx.quadraticCurveTo(midX, startY + 14, endX, startY);
+          ctx.stroke();
+          break;
+        }
+      }
+      ctx.restore();
+    }
+
+    function renderAutoGeneratedSignature() {
+      if (!sigGenCanvas) return;
+      const genCtx = sigGenCanvas.getContext('2d');
+      const cw = sigGenCanvas.width;
+      const ch = sigGenCanvas.height;
+
+      genCtx.clearRect(0, 0, cw, ch);
+      sigGenCanvas.__rendered = true;
+
+      let name = (sigGenNameInput?.value || '').trim();
+      if (!name) {
+        name = getFullNameFromForm();
+        if (sigGenNameInput) sigGenNameInput.value = name;
+      }
+
+      // Initials format if checked
+      if (chkSigInitialsOnly && chkSigInitialsOnly.checked) {
+        const parts = name.split(/\s+/);
+        if (parts.length > 1) {
+          const initials = parts.slice(0, -1).map(p => p[0].toUpperCase() + '.').join(' ');
+          name = `${initials} ${parts[parts.length - 1]}`;
+        }
+      }
+
+      const fontName = sigGenFontSelect?.value || 'Dancing Script';
+      const slantDeg = parseFloat(rngSigSlant?.value || -3);
+      const slantRad = (slantDeg * Math.PI) / 180;
+
+      genCtx.save();
+      // Apply slant
+      genCtx.transform(1, 0, Math.tan(slantRad), 1, 0, 0);
+
+      // Dynamically fit font size
+      let fontSize = 48 + (genVariation % 3) * 2;
+      genCtx.font = `600 ${fontSize}px "${fontName}", cursive, sans-serif`;
+      let textMetrics = genCtx.measureText(name);
+      while (textMetrics.width > cw - 80 && fontSize > 24) {
+        fontSize -= 2;
+        genCtx.font = `600 ${fontSize}px "${fontName}", cursive, sans-serif`;
+        textMetrics = genCtx.measureText(name);
+      }
+
+      const textX = Math.max(30, (cw - textMetrics.width) / 2);
+      const textY = ch / 2 + fontSize * 0.28;
+
+      genCtx.fillStyle = '#0f172a'; // Deep ink
+      genCtx.fillText(name, textX, textY);
+
+      // Flourish underline if checked
+      if (chkSigUnderline && chkSigUnderline.checked) {
+        drawUnderlineFlourish(genCtx, textX - 5, textY + 8, textMetrics.width, genVariation);
+      }
+
+      genCtx.restore();
+
+      // Crop and commit
+      const cropped = cropCanvasToContent(sigGenCanvas, 14);
+      if (cropped) {
+        const dataUrl = cropped.toDataURL('image/png');
+        updateActiveSignature(dataUrl, `Generated (${fontName})`);
+      }
+    }
+
+    if (sigGenNameInput) sigGenNameInput.addEventListener('input', renderAutoGeneratedSignature);
+    if (sigGenFontSelect) sigGenFontSelect.addEventListener('change', renderAutoGeneratedSignature);
+    if (chkSigUnderline) chkSigUnderline.addEventListener('change', renderAutoGeneratedSignature);
+    if (chkSigInitialsOnly) chkSigInitialsOnly.addEventListener('change', renderAutoGeneratedSignature);
+    if (rngSigSlant) rngSigSlant.addEventListener('input', renderAutoGeneratedSignature);
+
+    if (btnRegenerateSig) {
+      btnRegenerateSig.addEventListener('click', () => {
+        genVariation++;
+        renderAutoGeneratedSignature();
+      });
+    }
+
+    if (btnDownloadGeneratedSig) {
+      btnDownloadGeneratedSig.addEventListener('click', () => {
+        const cropped = cropCanvasToContent(sigGenCanvas, 14);
+        downloadDataUrl(cropped ? cropped.toDataURL('image/png') : sigGenCanvas.toDataURL('image/png'), 'generated_signature.png');
+      });
+    }
+
+    // Auto update name on Form changes if input untouched
+    const fDAC = document.getElementById('field_DAC');
+    const fDCS = document.getElementById('field_DCS');
+    [fDAC, fDCS].forEach(input => {
+      if (input) {
+        input.addEventListener('change', () => {
+          if (!state.signatureBase64 || state.signatureSource?.startsWith('Generated')) {
+            syncNameFromForm();
+          }
+        });
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 3. UPLOAD & AUTO BACKGROUND REMOVAL
+    // -------------------------------------------------------------
+    let currentUploadedImage = null;
+
+    function processUploadedImage() {
+      if (!currentUploadedImage) return;
+
+      const offCanvas = document.createElement('canvas');
+      const maxDim = 800;
+      let w = currentUploadedImage.naturalWidth || currentUploadedImage.width;
+      let h = currentUploadedImage.naturalHeight || currentUploadedImage.height;
+
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
+      offCanvas.width = w;
+      offCanvas.height = h;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(currentUploadedImage, 0, 0, w, h);
+
+      const imgData = offCtx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      const autoRemoveBg = chkAutoRemoveBg ? chkAutoRemoveBg.checked : true;
+      const normalizeInk = chkNormalizeInk ? chkNormalizeInk.checked : true;
+      const threshold = parseInt(rngBgThreshold?.value || 190, 10);
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        if (autoRemoveBg) {
+          if (lum >= threshold) {
+            data[i + 3] = 0; // Transparent paper
+          } else {
+            // Smooth alpha falloff for clean handwriting edges
+            const darkness = (threshold - lum) / threshold;
+            data[i + 3] = Math.min(255, Math.round(255 * Math.pow(darkness, 0.65)));
+
+            if (normalizeInk) {
+              data[i] = 15;     // #0f172a Deep ink navy
+              data[i + 1] = 23;
+              data[i + 2] = 42;
+            }
+          }
+        }
+      }
+
+      offCtx.putImageData(imgData, 0, 0);
+
+      // Crop to tight bounding box with padding
+      const cropped = cropCanvasToContent(offCanvas, 14) || offCanvas;
+      const cleanedDataUrl = cropped.toDataURL('image/png');
+
+      if (sigUploadPreviewImg) {
+        sigUploadPreviewImg.src = cleanedDataUrl;
+        sigUploadPreviewImg.classList.remove('hidden');
+      }
+      if (sigUploadPlaceholder) sigUploadPlaceholder.classList.add('hidden');
+      if (sigUploadStatus) {
+        sigUploadStatus.textContent = `Cleaned (${cropped.width}×${cropped.height} PNG)`;
+        sigUploadStatus.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-500/30';
+      }
+
+      updateActiveSignature(cleanedDataUrl, 'Uploaded (Background Removed)');
+    }
+
+    function handleSignatureFile(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        alert('Please upload a valid image file (PNG, JPG, WEBP).');
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (evt) => {
         const img = new Image();
         img.onload = () => {
-          ctx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
-          ctx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height);
-          state.signatureBase64 = sigCanvas.toDataURL('image/png');
+          currentUploadedImage = img;
+          processUploadedImage();
         };
         img.src = evt.target.result;
       };
-      reader.readAsDataURL(e.target.files[0]);
+      reader.readAsDataURL(file);
     }
-  });
+
+    if (sigFileInput) {
+      sigFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleSignatureFile(e.target.files[0]);
+        }
+      });
+    }
+
+    if (sigUploadDropZone) {
+      sigUploadDropZone.addEventListener('click', () => {
+        if (sigFileInput) sigFileInput.click();
+      });
+      sigUploadDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        sigUploadDropZone.classList.add('border-blue-500', 'bg-blue-500/10');
+      });
+      sigUploadDropZone.addEventListener('dragleave', () => {
+        sigUploadDropZone.classList.remove('border-blue-500', 'bg-blue-500/10');
+      });
+      sigUploadDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        sigUploadDropZone.classList.remove('border-blue-500', 'bg-blue-500/10');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleSignatureFile(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    if (chkAutoRemoveBg) chkAutoRemoveBg.addEventListener('change', processUploadedImage);
+    if (chkNormalizeInk) chkNormalizeInk.addEventListener('change', processUploadedImage);
+    if (rngBgThreshold) rngBgThreshold.addEventListener('input', processUploadedImage);
+
+    if (btnDownloadUploadedSig) {
+      btnDownloadUploadedSig.addEventListener('click', () => {
+        if (!currentUploadedImage) {
+          alert('Upload a signature image first.');
+          return;
+        }
+        if (sigUploadPreviewImg && sigUploadPreviewImg.src) {
+          downloadDataUrl(sigUploadPreviewImg.src, 'cleaned_signature.png');
+        }
+      });
+    }
+
+    // Step transition hook
+    window.__onEnterStep3 = () => {
+      if (window.lucide) lucide.createIcons();
+      if (!state.signatureBase64 || state.signatureSource?.startsWith('Generated')) {
+        syncNameFromForm();
+      }
+    };
+
+    // Default initialization: pre-render auto-generated signature from default name
+    setTimeout(() => {
+      renderAutoGeneratedSignature();
+    }, 400);
+  }
 
   // --- Step 4: Barcode & Execution Hub ---
   btnRefreshBarcode.addEventListener('click', updateBarcodePreview);
