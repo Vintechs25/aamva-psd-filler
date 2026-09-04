@@ -1,5 +1,5 @@
 /**
- * AI Template Analyzer using Google Gemini API (2025 Standard)
+ * AI Template Analyzer using OpenRouter API (2025 Standard)
  * Acts as the intelligent brain of the AAMVA PSD Card Filler.
  */
 
@@ -105,22 +105,90 @@ Output must be strictly valid JSON matching this schema:
   },
   "confidenceScore": 0.98,
   "analysisNotes": ["string"]
-}`;
+}
+
+Respond ONLY with valid JSON. Do not include markdown preamble or explanations outside the JSON object.`;
+
+// OpenRouter model configurations (priority ordered with fallbacks)
+const OPENROUTER_MODELS = [
+  'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'minimax/minimax-m2.7:free',
+  'minimax/minimax-m3:free',
+  'liquid/lfm-2.5-2.6b:free'
+];
 
 /**
- * Calls the Google Gemini API with fallback models and multimodal support
+ * Resolves OpenRouter API Key from environment or options
  */
-async function callGeminiApi(promptText, referenceImage = null) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY environment variable is not configured in .env or settings.');
+function getOpenRouterApiKey(options = {}) {
+  return (
+    options.apiKey ||
+    process.env.OPENROUTER_API_KEY ||
+    process.env.OPEN_ROUTER_API_KEY ||
+    process.env.AI_API_KEY ||
+    ''
+  ).trim();
+}
+
+/**
+ * Extracts and parses JSON safely from model response text
+ */
+function extractJsonFromText(rawText) {
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error('Empty response received from OpenRouter model.');
   }
 
-  const models = ['gemini-3.6-flash', 'gemini-flash-latest'];
+  const trimmed = rawText.trim();
+
+  // 1. Direct JSON parse
+  try {
+    return JSON.parse(trimmed);
+  } catch (e) {
+    // Continue to next extraction strategy
+  }
+
+  // 2. Markdown fenced block ```json ... ```
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch && fenceMatch[1]) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  // 3. Substring between first '{' and last '}'
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = trimmed.substring(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  throw new Error(`Failed to parse valid JSON from OpenRouter output: ${trimmed.slice(0, 300)}...`);
+}
+
+/**
+ * Calls OpenRouter API with prioritized fallback models and automatic retry
+ */
+async function callOpenRouterApi(promptText, referenceImage = null, options = {}) {
+  const apiKey = getOpenRouterApiKey(options);
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is not configured in .env or settings. Please provide an OpenRouter API key.');
+  }
+
+  const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+  const models = options.models || OPENROUTER_MODELS;
   let lastError = null;
 
-  // Prepare parts
-  const parts = [];
+  // Process reference image if provided
+  let imagePayload = null;
   if (referenceImage) {
     let base64Data = null;
     let mimeType = 'image/jpeg';
@@ -143,90 +211,128 @@ async function callGeminiApi(promptText, referenceImage = null) {
     }
 
     if (base64Data) {
-      parts.push({
-        inlineData: {
-          mimeType,
-          data: base64Data
+      imagePayload = {
+        type: 'image_url',
+        image_url: {
+          url: `data:${mimeType};base64,${base64Data}`
         }
-      });
-      console.log(`[AI Analyzer] Attached reference card image (${mimeType}) to Gemini prompt`);
+      };
     }
   }
 
-  parts.push({ text: promptText });
-
   for (const model of models) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    console.log(`[AI Analyzer] Calling OpenRouter API with model: ${model}...`);
 
-    const requestBody = {
-      contents: [
+    // Helper to send request with given user message content
+    async function sendRequest(userContent) {
+      const messages = [
+        {
+          role: 'system',
+          content: SYSTEM_INSTRUCTION
+        },
         {
           role: 'user',
-          parts
+          content: userContent
         }
-      ],
-      systemInstruction: {
-        parts: [{ text: SYSTEM_INSTRUCTION }]
-      },
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-        maxOutputTokens: 8192
-      }
-    };
+      ];
 
-    console.log(`[AI Analyzer] Calling Gemini API (${model})...`);
+      const requestBody = {
+        model,
+        messages,
+        temperature: 0.1,
+        max_tokens: 8192
+      };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'AAMVA DL/ID PSD Filler'
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(90000)
+      });
+
+      return res;
+    }
 
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(25000)
-      });
+      let response = null;
+
+      // If image is present, try multimodal first
+      if (imagePayload) {
+        try {
+          const multimodalContent = [
+            { type: 'text', text: promptText },
+            imagePayload
+          ];
+          response = await sendRequest(multimodalContent);
+        } catch (visionErr) {
+          console.warn(`[AI Analyzer] Multimodal request failed for ${model}, falling back to text-only:`, visionErr.message);
+        }
+      }
+
+      // If no response yet (or if vision returned 400/422 indicating image unsupported)
+      if (!response || response.status === 400 || response.status === 422) {
+        if (response && (response.status === 400 || response.status === 422)) {
+          const errBody = await response.text();
+          console.log(`[AI Analyzer] Model ${model} rejected image (${response.status}), retrying text-only...`);
+        }
+        response = await sendRequest(promptText);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.warn(`[AI Analyzer] Gemini API (${model}) error ${response.status}: ${errorText.slice(0, 200)}`);
-        lastError = new Error(`Gemini API error (${response.status}): ${errorText}`);
+        console.warn(`[AI Analyzer] OpenRouter model ${model} returned error ${response.status}: ${errorText.slice(0, 200)}`);
+        lastError = new Error(`OpenRouter API error (${model} - ${response.status}): ${errorText}`);
         continue;
       }
 
       const json = await response.json();
-      const candidate = json.candidates?.[0];
-      const text = candidate?.content?.parts?.[0]?.text;
-
-      if (!text) {
-        throw new Error('Gemini API returned an empty response.');
+      if (json.error) {
+        const errMsg = json.error.message || JSON.stringify(json.error);
+        console.warn(`[AI Analyzer] OpenRouter model ${model} returned error payload: ${errMsg.slice(0, 200)}`);
+        lastError = new Error(`OpenRouter error (${model}): ${errMsg}`);
+        continue;
       }
 
-      const parsed = JSON.parse(text);
-      console.log(`[AI Analyzer] Successfully received and parsed schema from Gemini (${model})`);
-      return { schema: parsed, modelUsed: model };
+      const choice = json.choices?.[0];
+      const replyText = choice?.message?.content || choice?.message?.reasoning;
+
+      if (!replyText) {
+        console.warn(`[AI Analyzer] Model ${model} returned empty completion choice`);
+        lastError = new Error(`Model ${model} returned an empty completion response.`);
+        continue;
+      }
+
+      const parsedSchema = extractJsonFromText(replyText);
+      console.log(`[AI Analyzer] Successfully received and parsed schema from OpenRouter (${model})!`);
+      return { schema: parsedSchema, modelUsed: model };
     } catch (err) {
       console.warn(`[AI Analyzer] Model ${model} failed:`, err.message);
       lastError = err;
     }
   }
 
-  throw lastError || new Error('All Gemini models failed.');
+  throw lastError || new Error('All OpenRouter models failed or were unavailable.');
 }
 
 /**
- * Analyzes a PSD layers summary using Gemini AI with optional reference image
+ * Analyzes a PSD layers summary using OpenRouter AI with optional reference card image
  */
-async function analyzeTemplateWithGemini(layersSummary, referenceImage = null) {
-  const simplifiedLayers = layersSummary.allLayers.map(l => ({
-    name: l.name,
-    path: l.path,
-    type: l.isGroup ? 'group' : (l.hasText ? 'text' : 'pixel'),
-    visible: l.visible,
-    text: l.currentText || undefined,
-    font: l.fontName || undefined,
-    fontSize: l.fontSize || undefined,
-    bounds: [l.left, l.top, l.right, l.bottom],
-    dimensions: `${l.width}x${l.height}`
-  }));
+async function analyzeTemplateWithOpenRouter(layersSummary, referenceImage = null, options = {}) {
+  const simplifiedLayers = layersSummary.allLayers
+    .filter(l => l.visible !== false)
+    .map(l => ({
+      name: l.name,
+      path: l.path,
+      type: l.isGroup ? 'group' : (l.hasText ? 'text' : 'pixel'),
+      text: l.currentText || undefined,
+      font: l.fontName || undefined,
+      bounds: [l.left, l.top, l.right, l.bottom]
+    }));
 
   let prompt = `Analyze this PSD template layer structure and return the AAMVA 2025 Template Schema JSON.
 
@@ -245,10 +351,20 @@ Differentiate static labels (e.g. layers in "Dont touch" or containing label num
 ${prompt}`;
   }
 
-  return await callGeminiApi(prompt, referenceImage);
+  return await callOpenRouterApi(prompt, referenceImage, options);
 }
 
+// Aliases for seamless backward compatibility
+const analyzeTemplateWithGemini = analyzeTemplateWithOpenRouter;
+const analyzeTemplateWithAI = analyzeTemplateWithOpenRouter;
+
 module.exports = {
+  SYSTEM_INSTRUCTION,
+  OPENROUTER_MODELS,
+  getOpenRouterApiKey,
+  callOpenRouterApi,
+  analyzeTemplateWithOpenRouter,
+  analyzeTemplateWithAI,
   analyzeTemplateWithGemini,
-  callGeminiApi
+  extractJsonFromText
 };

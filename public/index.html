@@ -49,6 +49,10 @@
       </div>
 
       <div class="flex items-center space-x-3">
+        <button id="btnAiSettingsModal" class="px-3 py-1.5 rounded-lg border border-purple-700/60 bg-purple-950/40 hover:bg-purple-900/60 text-xs font-medium text-purple-300 transition flex items-center gap-1.5">
+          <i data-lucide="cpu" class="w-3.5 h-3.5 text-purple-400"></i>
+          <span id="aiSettingsBtnText">OpenRouter AI</span>
+        </button>
         <button id="btnDocsModal" class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-300 transition flex items-center gap-1.5">
           <i data-lucide="book-open" class="w-4 h-4 text-blue-400"></i>
           Layer Naming & Spec Guide
@@ -138,7 +142,7 @@
                   <i data-lucide="image" class="w-3.5 h-3.5 text-blue-400"></i>
                   Reference ID/DL Card Photo (Optional)
                 </span>
-                <span class="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-mono">Gemini AI</span>
+                <span class="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-mono">OpenRouter AI</span>
               </div>
               <div id="refImgDropZone" class="border border-dashed border-slate-700 hover:border-blue-500 rounded-xl p-3 text-center cursor-pointer transition bg-slate-950/30">
                 <input type="file" id="refImgFileInput" accept="image/*" class="hidden">
@@ -212,10 +216,10 @@
                 </div>
                 <div>
                   <div id="aiBrainTitle" class="text-xs font-bold text-purple-200 flex items-center gap-2">
-                    Gemini AI Template Analyzer
+                    OpenRouter AI Template Analyzer
                     <span id="aiBrainBadge" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">98% Confidence</span>
                   </div>
-                  <div id="aiBrainSubtitle" class="text-[11px] text-slate-400">Jurisdiction: Texas • AAMVA 2025 Standard Schema</div>
+                  <div id="aiBrainSubtitle" class="text-[11px] text-slate-400">Jurisdiction: Texas • OpenRouter 2025 Standard Schema</div>
                 </div>
               </div>
               <button type="button" id="btnToggleAiSchema" class="px-3 py-1.5 text-xs rounded-lg bg-purple-900/40 hover:bg-purple-800/60 border border-purple-700 text-purple-200 transition font-medium flex items-center gap-1.5">
@@ -227,7 +231,7 @@
             <!-- Collapsible AI Schema Box -->
             <div id="aiSchemaDrawer" class="hidden mt-2 p-3 bg-slate-950/80 rounded-xl border border-purple-500/20 text-xs">
               <div class="flex justify-between items-center mb-2">
-                <span class="text-purple-300 font-semibold text-[11px]">Structured Gemini 2025 Schema:</span>
+                <span class="text-purple-300 font-semibold text-[11px]">Structured OpenRouter 2025 Schema:</span>
                 <button type="button" id="btnCloseAiSchema" class="text-slate-500 hover:text-slate-300 text-xs">Close</button>
               </div>
               <pre id="aiSchemaJsonBox" class="font-mono text-[10px] text-purple-200/90 overflow-x-auto max-h-48 bg-slate-900/90 p-2.5 rounded border border-slate-800"></pre>
@@ -921,6 +925,48 @@
           <button type="button" id="btnConfirmXmlImport" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-500/20 transition">
             <i data-lucide="check" class="w-4 h-4"></i>
             Parse & Populate Form
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Settings Modal -->
+  <div id="aiSettingsModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+      <div class="flex justify-between items-center pb-4 border-b border-slate-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="cpu" class="w-5 h-5 text-purple-400"></i>
+          OpenRouter AI Configuration
+        </h3>
+        <button type="button" id="btnCloseAiSettingsModal" class="text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="mt-4 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">OpenRouter API Key</label>
+          <input type="password" id="openRouterApiKeyInput" placeholder="sk-or-v1-..." class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-purple-500 focus:outline-none">
+          <p class="text-[11px] text-slate-500 mt-1">Read automatically from <code class="text-purple-300">OPENROUTER_API_KEY</code> in <code class="text-purple-300">.env</code>. You can paste or update your key here.</p>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+          <div class="text-xs font-semibold text-slate-300">Model Fallback Priority (Free):</div>
+          <ol class="text-[11px] text-slate-400 list-decimal list-inside space-y-1 font-mono">
+            <li><span class="text-purple-300">cognitivecomputations/dolphin-mistral-24b-venice-edition:free</span> (Primary)</li>
+            <li><span class="text-blue-300">nvidia/nemotron-3-ultra-550b-a55b:free</span> (Fallback 1)</li>
+            <li><span class="text-indigo-300">meta-llama/llama-3.3-70b-instruct:free</span> (Fallback 2)</li>
+          </ol>
+        </div>
+
+        <div id="aiSettingsStatusMsg" class="hidden text-xs p-2.5 rounded-lg"></div>
+
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" id="btnCancelAiSettings" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800 text-xs text-slate-300 transition">Cancel</button>
+          <button type="button" id="btnSaveAiSettings" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-purple-500/20 transition">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            Save Key
           </button>
         </div>
       </div>

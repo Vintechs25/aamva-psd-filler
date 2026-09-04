@@ -35,7 +35,10 @@ const {
   renderWithPhotopea
 } = require('./src/photopea-engine');
 const {
-  analyzeTemplateWithGemini
+  analyzeTemplateWithOpenRouter,
+  analyzeTemplateWithGemini,
+  getOpenRouterApiKey,
+  OPENROUTER_MODELS
 } = require('./src/ai-template-analyzer');
 const {
   ensureSampleTemplates
@@ -206,12 +209,67 @@ app.post('/api/analyze', upload.single('psdFile'), async (req, res) => {
 });
 
 /**
+ * GET /api/settings
+ * Returns AI provider configuration status
+ */
+app.get('/api/settings', (req, res) => {
+  const apiKey = getOpenRouterApiKey();
+  const maskedKey = apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : '';
+  res.json({
+    success: true,
+    provider: 'openrouter',
+    hasApiKey: !!apiKey,
+    maskedKey,
+    models: OPENROUTER_MODELS
+  });
+});
+
+/**
+ * POST /api/settings
+ * Updates OpenRouter API key and saves it to .env
+ */
+app.post('/api/settings', (req, res) => {
+  try {
+    const { openRouterApiKey } = req.body;
+    if (!openRouterApiKey || typeof openRouterApiKey !== 'string') {
+      return res.status(400).json({ success: false, error: 'Valid openRouterApiKey is required.' });
+    }
+
+    const trimmedKey = openRouterApiKey.trim();
+    process.env.OPENROUTER_API_KEY = trimmedKey;
+
+    // Persist to .env
+    const envPath = path.resolve(__dirname, '.env');
+    let envContent = '';
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8');
+    }
+
+    if (envContent.includes('OPENROUTER_API_KEY=')) {
+      envContent = envContent.replace(/OPENROUTER_API_KEY=.*/g, `OPENROUTER_API_KEY=${trimmedKey}`);
+    } else {
+      envContent += `\nOPENROUTER_API_KEY=${trimmedKey}\n`;
+    }
+    fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
+
+    console.log('[Settings] Updated and saved OPENROUTER_API_KEY to .env');
+    res.json({
+      success: true,
+      message: 'OpenRouter API key saved successfully',
+      maskedKey: `${trimmedKey.slice(0, 8)}...${trimmedKey.slice(-4)}`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/ai/analyze-template
- * Runs Google Gemini AI multimodal layer analysis on a PSD template
+ * Runs OpenRouter AI layer analysis on a PSD template
  */
 app.post('/api/ai/analyze-template', upload.single('referenceImage'), async (req, res) => {
   try {
-    const { filePath, templatePath } = req.body;
+    const { filePath, templatePath, apiKey: bodyApiKey } = req.body;
     const targetPath = filePath || templatePath;
     if (!targetPath) {
       return res.status(400).json({ success: false, error: 'filePath or templatePath is required' });
@@ -233,18 +291,22 @@ app.post('/api/ai/analyze-template', upload.single('referenceImage'), async (req
       referenceImage = req.body.referenceImagePath;
     }
 
-    console.log(`[AI Endpoint] Analyzing PSD layers with Gemini: ${path.basename(fullPath)} (Reference Image: ${!!referenceImage})`);
+    // Support API key override from request headers or body
+    const apiKeyOverride = bodyApiKey || req.headers['x-openrouter-key'] || req.headers['x-api-key'];
+
+    console.log(`[AI Endpoint] Analyzing PSD layers with OpenRouter: ${path.basename(fullPath)} (Reference Image: ${!!referenceImage})`);
     const { summary } = analyzePsdFile(fullPath);
-    const { schema, modelUsed } = await analyzeTemplateWithGemini(summary, referenceImage);
+    const { schema, modelUsed } = await analyzeTemplateWithOpenRouter(summary, referenceImage, { apiKey: apiKeyOverride });
 
     res.json({
       success: true,
+      provider: 'openrouter',
       modelUsed,
       schema,
       summary
     });
   } catch (err) {
-    console.error('[AI Endpoint] Error during Gemini analysis:', err);
+    console.error('[AI Endpoint] Error during OpenRouter analysis:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

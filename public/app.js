@@ -153,6 +153,94 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === docsModal) docsModal.classList.add('hidden');
   });
 
+  // --- AI Settings Modal Logic ---
+  const btnAiSettingsModal = document.getElementById('btnAiSettingsModal');
+  const aiSettingsModal = document.getElementById('aiSettingsModal');
+  const btnCloseAiSettingsModal = document.getElementById('btnCloseAiSettingsModal');
+  const btnCancelAiSettings = document.getElementById('btnCancelAiSettings');
+  const btnSaveAiSettings = document.getElementById('btnSaveAiSettings');
+  const openRouterApiKeyInput = document.getElementById('openRouterApiKeyInput');
+  const aiSettingsStatusMsg = document.getElementById('aiSettingsStatusMsg');
+  const aiSettingsBtnText = document.getElementById('aiSettingsBtnText');
+
+  async function checkAiSettings() {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data.success) {
+        if (data.hasApiKey) {
+          if (aiSettingsBtnText) aiSettingsBtnText.textContent = `OpenRouter Active (${data.maskedKey})`;
+          if (openRouterApiKeyInput) openRouterApiKeyInput.placeholder = data.maskedKey;
+        } else {
+          if (aiSettingsBtnText) aiSettingsBtnText.textContent = 'Configure OpenRouter';
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (btnAiSettingsModal && aiSettingsModal) {
+    btnAiSettingsModal.addEventListener('click', () => {
+      aiSettingsModal.classList.remove('hidden');
+      if (aiSettingsStatusMsg) aiSettingsStatusMsg.classList.add('hidden');
+      checkAiSettings();
+      if (window.lucide) lucide.createIcons();
+    });
+  }
+
+  if (btnCloseAiSettingsModal && aiSettingsModal) {
+    btnCloseAiSettingsModal.addEventListener('click', () => aiSettingsModal.classList.add('hidden'));
+  }
+  if (btnCancelAiSettings && aiSettingsModal) {
+    btnCancelAiSettings.addEventListener('click', () => aiSettingsModal.classList.add('hidden'));
+  }
+
+  if (btnSaveAiSettings) {
+    btnSaveAiSettings.addEventListener('click', async () => {
+      const key = openRouterApiKeyInput.value.trim();
+      if (!key) {
+        if (aiSettingsStatusMsg) {
+          aiSettingsStatusMsg.textContent = 'Please enter a valid OpenRouter API key.';
+          aiSettingsStatusMsg.className = 'text-xs p-2.5 rounded-lg bg-red-950/80 text-red-300 border border-red-800';
+          aiSettingsStatusMsg.classList.remove('hidden');
+        }
+        return;
+      }
+
+      btnSaveAiSettings.disabled = true;
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ openRouterApiKey: key })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (aiSettingsStatusMsg) {
+            aiSettingsStatusMsg.textContent = '✓ API Key saved to environment successfully!';
+            aiSettingsStatusMsg.className = 'text-xs p-2.5 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-800';
+            aiSettingsStatusMsg.classList.remove('hidden');
+          }
+          if (aiSettingsBtnText) aiSettingsBtnText.textContent = `OpenRouter Active (${data.maskedKey})`;
+          openRouterApiKeyInput.value = '';
+          openRouterApiKeyInput.placeholder = data.maskedKey;
+          setTimeout(() => {
+            if (aiSettingsModal) aiSettingsModal.classList.add('hidden');
+          }, 1200);
+        } else {
+          throw new Error(data.error || 'Failed to save key');
+        }
+      } catch (err) {
+        if (aiSettingsStatusMsg) {
+          aiSettingsStatusMsg.textContent = `Error: ${err.message}`;
+          aiSettingsStatusMsg.className = 'text-xs p-2.5 rounded-lg bg-red-950/80 text-red-300 border border-red-800';
+          aiSettingsStatusMsg.classList.remove('hidden');
+        }
+      } finally {
+        btnSaveAiSettings.disabled = false;
+      }
+    });
+  }
+
   // --- Initial Data Fetching ---
   async function initApp() {
     try {
@@ -168,6 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (presetRes.success) {
         state.presets = presetRes.presets;
       }
+      checkAiSettings();
     } catch (e) {
       console.warn('Init fetch failed, running offline defaults:', e);
     }
@@ -432,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnContinueToForm.disabled = false;
   }
 
-  async function triggerGeminiAnalysis(filePath) {
+  async function triggerAiAnalysis(filePath) {
     const aiBrainBanner = document.getElementById('aiBrainBanner');
     const aiBrainBadge = document.getElementById('aiBrainBadge');
     const aiBrainSubtitle = document.getElementById('aiBrainSubtitle');
@@ -446,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aiBrainBanner.classList.remove('hidden');
     aiBrainBadge.textContent = 'Analyzing...';
     aiBrainBadge.className = 'px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono animate-pulse';
-    aiBrainSubtitle.textContent = 'Gemini AI Brain is inspecting layer hierarchy and AAMVA 2025 mappings...';
+    aiBrainSubtitle.textContent = 'OpenRouter AI Brain is inspecting layer hierarchy and AAMVA 2025 mappings...';
 
     if (btnToggleAiSchema && aiSchemaDrawer) {
       btnToggleAiSchema.onclick = () => aiSchemaDrawer.classList.toggle('hidden');
@@ -477,15 +566,19 @@ document.addEventListener('DOMContentLoaded', () => {
         state.aiSchema = data.schema;
         aiBrainBadge.textContent = `${Math.round((data.schema.confidenceScore || 0.98) * 100)}% Confidence`;
         aiBrainBadge.className = 'px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono';
-        aiBrainSubtitle.textContent = `Jurisdiction: ${data.schema.jurisdiction || 'Detected'} • Model: ${data.modelUsed} • AAMVA 2025 Standard`;
+        aiBrainSubtitle.textContent = `Jurisdiction: ${data.schema.jurisdiction || 'Detected'} • Model: ${data.modelUsed} • OpenRouter 2025 Schema`;
         if (aiSchemaJsonBox) aiSchemaJsonBox.textContent = JSON.stringify(data.schema, null, 2);
+      } else {
+        throw new Error(data.error || 'Failed to generate schema');
       }
     } catch (e) {
       console.warn('AI analysis error:', e);
       aiBrainBadge.textContent = 'Heuristic Fallback';
       aiBrainBadge.className = 'px-1.5 py-0.5 rounded text-[10px] bg-slate-700 text-slate-300 border border-slate-600 font-mono';
+      aiBrainSubtitle.textContent = `Using internal rule-based heuristic mapping (${e.message.slice(0, 70)}...)`;
     }
   }
+  const triggerGeminiAnalysis = triggerAiAnalysis;
 
   // --- Step 2: Form & Presets ---
   presetSelect.addEventListener('change', (e) => {

@@ -11,8 +11,12 @@ A professional, offline-capable application designed to automatically fill Drive
    - Executes native Photoshop ExtendScript (`textItem.contents = ...`), guaranteeing **100% fidelity**: exact font family, weight, tracking, kerning, leading, colors, layer styles, and vector bounds remain completely untouched.
    - **Guaranteed Security Feature Preservation**: Holograms, watermarks, guilloché security patterns, microtext, UV features, logos, seals, clipping masks, and blend modes (`multiply`, `screen`, `overlay`, `pass through`) are fully preserved without raster distortion.
 
-2. **Multimodal Gemini AI Template Analyzer**:
+2. **OpenRouter AI Template Analyzer**:
    - Analyzes complex multi-layer PSD templates in conjunction with an optional photo of a real physical card.
+   - Built on OpenRouter with automated fallbacks:
+     - Primary: `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`
+     - Fallback 1: `nvidia/nemotron-3-ultra-550b-a55b:free`
+     - Fallback 2: `meta-llama/llama-3.3-70b-instruct:free`
    - Accurately maps ambiguous or jurisdiction-specific layer names to standard AAMVA 2025 elements with 0.99+ confidence.
 
 3. **Intelligent Auto-Calculation & DCF Generator**:
