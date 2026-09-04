@@ -1,0 +1,666 @@
+/**
+ * Photopea Rendering Engine
+ * Embeds Photopea (https://www.photopea.com) as the native Photoshop engine
+ * with perfect preservation of typography, smart objects, blend modes,
+ * guilloche security patterns, holograms, and multi-layer structures.
+ */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const puppeteer = require('puppeteer-core');
+const { readPsd, writePsd, initializeCanvas } = require('ag-psd');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
+initializeCanvas(createCanvas);
+const { PDFDocument } = require('pdf-lib');
+const bwipjs = require('bwip-js');
+const {
+  generateAamvaBarcodePayload,
+  cleanAamvaText,
+  formatDisplayDate,
+  formatAamvaDate,
+  formatAamvaHeight
+} = require('./aamva-standard');
+
+// Locate installed Chrome or Edge executable on Windows
+function findBrowserExecutable() {
+  const candidates = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  throw new Error('No compatible browser (Chrome or Edge) found for Photopea engine.');
+}
+
+/**
+ * Helper to recursively find a layer in ag-psd tree
+ */
+function findLayerInPsd(parent, name) {
+  if (!parent || !parent.children) return null;
+  const leaf = String(name).split('/').pop().trim().toLowerCase();
+  for (const c of parent.children) {
+    if (c.name.toLowerCase() === leaf) return c;
+    const found = findLayerInPsd(c, name);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Formats value for AAMVA element code
+ */
+function getValueForAamvaField(fieldKey, formData) {
+  switch (fieldKey) {
+    case 'DCS': return cleanAamvaText(formData.DCS || formData.lastName);
+    case 'DAC': return cleanAamvaText(formData.DAC || formData.firstName);
+    case 'DAD': return cleanAamvaText(formData.DAD || formData.middleName);
+    case 'NAME_FIRST_MIDDLE': {
+      const fn = cleanAamvaText(formData.DAC || formData.firstName);
+      const mn = cleanAamvaText(formData.DAD || formData.middleName);
+      return `${fn} ${mn}`.trim();
+    }
+    case 'NAME_FULL': {
+      const parts = [
+        formData.DAC || formData.firstName,
+        formData.DAD || formData.middleName,
+        formData.DCS || formData.lastName
+      ].filter(Boolean);
+      return cleanAamvaText(parts.join(' '));
+    }
+    case 'DBB':
+    case 'DBB_GHOST':
+      return formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob));
+    case 'DBA':
+      return formatDisplayDate(formatAamvaDate(formData.DBA || formData.expDate));
+    case 'DBD':
+      return formatDisplayDate(formatAamvaDate(formData.DBD || formData.issueDate));
+    case 'DAQ':
+      return cleanAamvaText(formData.DAQ || formData.licenseNumber);
+    case 'DAG':
+      return cleanAamvaText(formData.DAG || formData.address);
+    case 'DAH':
+      return cleanAamvaText(formData.DAH || formData.address2);
+    case 'DAI':
+      return cleanAamvaText(formData.DAI || formData.city);
+    case 'DAJ':
+      return cleanAamvaText(formData.DAJ || formData.state);
+    case 'DAK':
+      return cleanAamvaText(formData.DAK || formData.zip);
+    case 'CITY_STATE_ZIP': {
+      const c = cleanAamvaText(formData.DAI || formData.city);
+      const s = cleanAamvaText(formData.DAJ || formData.state);
+      const z = cleanAamvaText(formData.DAK || formData.zip);
+      return `${c}, ${s} ${z}`.trim();
+    }
+    case 'DBC': {
+      const s = String(formData.DBC || formData.sex || '1');
+      return s === '1' ? 'M' : (s === '2' ? 'F' : 'X');
+    }
+    case 'DAU':
+      return formatAamvaHeight(formData.DAU || formData.height);
+    case 'DAW':
+      return cleanAamvaText(formData.DAW || formData.weight);
+    case 'DAY':
+      return cleanAamvaText(formData.DAY || formData.eyes).slice(0, 3);
+    case 'DAZ':
+      return cleanAamvaText(formData.DAZ || formData.hair).slice(0, 3);
+    case 'DCA':
+      return cleanAamvaText(formData.DCA || formData.class || 'A');
+    case 'DCB':
+      return cleanAamvaText(formData.DCB || formData.restrictions || 'NONE');
+    case 'DCD':
+      return cleanAamvaText(formData.DCD || formData.endorsements || 'NONE');
+    case 'DCF':
+      return cleanAamvaText(formData.DCF || formData.discriminator);
+    case 'DDA':
+      return cleanAamvaText(formData.DDA || formData.complianceType);
+    default:
+      return formData[fieldKey] !== undefined ? cleanAamvaText(formData[fieldKey]) : null;
+  }
+}
+
+/**
+ * Main rendering engine using Photopea
+ */
+async function renderWithPhotopea(psdInput, formData, options = {}) {
+  const startTime = Date.now();
+  console.log('[PhotopeaEngine] Initializing Photopea rendering pipeline...');
+
+  // 1. Load PSD
+  let psdRaw;
+  if (Buffer.isBuffer(psdInput)) {
+    psdRaw = psdInput;
+  } else if (typeof psdInput === 'string' && fs.existsSync(psdInput)) {
+    psdRaw = fs.readFileSync(psdInput);
+  } else {
+    throw new Error(`Invalid PSD input: ${psdInput}`);
+  }
+
+  const psd = readPsd(psdRaw, { skipCompositeImageData: false, skipLayerImageData: false });
+  psd.bitsPerChannel = 8;
+
+  const schema = options.schema || options.aiSchema || {};
+  const assets = options.assets || {};
+
+  // Front & Back groups (exclude SELECT BACKGROUND)
+  const frontGroup = psd.children?.find(c => c.name.toLowerCase() === 'front')
+    || psd.children?.find(c => c.name.toLowerCase().includes('front') && !c.name.toLowerCase().includes('select'));
+  const backGroup = psd.children?.find(c => c.name.toLowerCase() === 'back')
+    || psd.children?.find(c => c.name.toLowerCase().includes('back') && !c.name.toLowerCase().includes('select'));
+
+  const hasBackSide = !!(backGroup || schema.hasFrontAndBack || (schema.sides && schema.sides.back));
+
+  // 2. Prepare and place image layers (Portrait, Ghost, Signature, Barcode)
+  // Portrait
+  let userPhotoImg = null;
+  const photoInput = assets.photo || options.photo || path.join(__dirname, '../assets/default_portrait.png');
+  if (photoInput) {
+    if (Buffer.isBuffer(photoInput)) userPhotoImg = await loadImage(photoInput);
+    else if (typeof photoInput === 'string' && photoInput.startsWith('data:')) {
+      const b64 = photoInput.replace(/^data:image\/\w+;base64,/, '');
+      userPhotoImg = await loadImage(Buffer.from(b64, 'base64'));
+    } else if (typeof photoInput === 'string' && fs.existsSync(photoInput)) {
+      userPhotoImg = await loadImage(photoInput);
+    }
+  }
+
+  // Signature
+  let userSigImg = null;
+  const sigInput = assets.signature || options.signature || path.join(__dirname, '../assets/default_signature.png');
+  if (sigInput) {
+    if (Buffer.isBuffer(sigInput)) userSigImg = await loadImage(sigInput);
+    else if (typeof sigInput === 'string' && sigInput.startsWith('data:')) {
+      const b64 = sigInput.replace(/^data:image\/\w+;base64,/, '');
+      userSigImg = await loadImage(Buffer.from(b64, 'base64'));
+    } else if (typeof sigInput === 'string' && fs.existsSync(sigInput)) {
+      userSigImg = await loadImage(sigInput);
+    }
+  }
+
+  // Place Portrait (Photo Big)
+  const photoTargetName = schema.sides?.front?.photoPlacement?.layerName || 'Photo Big';
+  const photoBigLayer = findLayerInPsd(frontGroup || psd, photoTargetName);
+  if (photoBigLayer && userPhotoImg) {
+    const w = (photoBigLayer.right || 0) - (photoBigLayer.left || 0);
+    const h = (photoBigLayer.bottom || 0) - (photoBigLayer.top || 0);
+    if (w > 0 && h > 0) {
+      const pCanvas = createCanvas(w, h);
+      const pCtx = pCanvas.getContext('2d');
+      pCtx.fillStyle = '#f8fafc';
+      pCtx.fillRect(0, 0, w, h);
+      const scale = Math.max(w / userPhotoImg.width, h / userPhotoImg.height);
+      const dw = userPhotoImg.width * scale;
+      const dh = userPhotoImg.height * scale;
+      pCtx.drawImage(userPhotoImg, (w - dw)/2, (h - dh)/2, dw, dh);
+      photoBigLayer.canvas = pCanvas;
+      console.log(`[PhotopeaEngine] Updated portrait layer: ${photoBigLayer.name} (${w}x${h})`);
+    }
+  }
+
+  // Place Ghost Portrait (Photo Ghost)
+  const ghostTargetName = schema.sides?.front?.ghostPlacement?.layerName || 'Photo Ghost';
+  const photoGhostLayer = findLayerInPsd(frontGroup || psd, ghostTargetName);
+  if (photoGhostLayer && userPhotoImg) {
+    const w = (photoGhostLayer.right || 0) - (photoGhostLayer.left || 0);
+    const h = (photoGhostLayer.bottom || 0) - (photoGhostLayer.top || 0);
+    if (w > 0 && h > 0) {
+      const gCanvas = createCanvas(w, h);
+      const gCtx = gCanvas.getContext('2d');
+      const scale = Math.max(w / userPhotoImg.width, h / userPhotoImg.height);
+      const dw = userPhotoImg.width * scale;
+      const dh = userPhotoImg.height * scale;
+      gCtx.drawImage(userPhotoImg, (w - dw)/2, (h - dh)/2, dw, dh);
+
+      // High-key 38% alpha grayscale
+      const imgData = gCtx.getImageData(0, 0, w, h);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        const avg = 0.299 * imgData.data[i] + 0.587 * imgData.data[i+1] + 0.114 * imgData.data[i+2];
+        const highKey = Math.min(255, Math.round(avg * 1.15));
+        imgData.data[i] = highKey;
+        imgData.data[i+1] = highKey;
+        imgData.data[i+2] = highKey;
+        imgData.data[i+3] = Math.round(imgData.data[i+3] * 0.38);
+      }
+      gCtx.putImageData(imgData, 0, 0);
+      photoGhostLayer.canvas = gCanvas;
+      console.log(`[PhotopeaEngine] Updated ghost portrait layer: ${photoGhostLayer.name} (${w}x${h})`);
+    }
+  }
+
+  // Place Signature
+  const sigTargetName = schema.sides?.front?.signaturePlacement?.layerName || 'Signature';
+  let sigLayer = findLayerInPsd(frontGroup || psd, sigTargetName);
+  if (sigLayer && sigLayer.children) {
+    sigLayer = sigLayer.children.find(c => (c.visible !== false) && !c.hidden && c.canvas && !c.text) || sigLayer;
+  }
+  if (sigLayer && userSigImg) {
+    const w = (sigLayer.right || 0) - (sigLayer.left || 0);
+    const h = (sigLayer.bottom || 0) - (sigLayer.top || 0);
+    if (w > 0 && h > 0) {
+      const sCanvas = createCanvas(w, h);
+      const sCtx = sCanvas.getContext('2d');
+      const scale = Math.min((w - 20) / userSigImg.width, (h - 20) / userSigImg.height);
+      const dw = userSigImg.width * scale;
+      const dh = userSigImg.height * scale;
+      sCtx.drawImage(userSigImg, (w - dw)/2, (h - dh)/2, dw, dh);
+      sigLayer.canvas = sCanvas;
+      console.log(`[PhotopeaEngine] Updated signature layer: ${sigLayer.name} (${w}x${h})`);
+    }
+  }
+
+  // Place AAMVA 2025 PDF417 Barcode
+  const barcodePayload = generateAamvaBarcodePayload(formData);
+  const barcodeTargetName = schema.sides?.back?.barcodePlacement?.layerName || 'PDF417_A1181102_202105110338';
+  let barcodeLayer = findLayerInPsd(backGroup, barcodeTargetName)
+    || findLayerInPsd(psd, barcodeTargetName);
+
+  if (!barcodeLayer) {
+    function findAnyBarcode(p) {
+      if (!p || !p.children) return null;
+      for (const c of p.children) {
+        const lower = c.name.toLowerCase();
+        if (lower.includes('pdf417') || (lower.includes('barcode') && !c.children)) return c;
+        const f = findAnyBarcode(c);
+        if (f) return f;
+      }
+      return null;
+    }
+    barcodeLayer = findAnyBarcode(backGroup) || findAnyBarcode(psd);
+  }
+
+  if (barcodeLayer) {
+    const w = (barcodeLayer.right || 0) - (barcodeLayer.left || 0);
+    const h = (barcodeLayer.bottom || 0) - (barcodeLayer.top || 0);
+    if (w > 0 && h > 0) {
+      const bPng = await bwipjs.toBuffer({
+        bcid: 'pdf417',
+        text: barcodePayload,
+        scale: 3,
+        eclevel: 5,
+        columns: 14,
+        width: Math.round(w / 4),
+        height: Math.round(h / 4)
+      });
+      const bImg = await loadImage(bPng);
+      const bCanvas = createCanvas(w, h);
+      const bCtx = bCanvas.getContext('2d');
+      bCtx.fillStyle = '#FFFFFF';
+      bCtx.fillRect(0, 0, w, h);
+      const scale = Math.min((w - 10) / bImg.width, (h - 10) / bImg.height);
+      const dw = bImg.width * scale;
+      const dh = bImg.height * scale;
+      bCtx.drawImage(bImg, (w - dw)/2, (h - dh)/2, dw, dh);
+      barcodeLayer.canvas = bCanvas;
+      console.log(`[PhotopeaEngine] Updated AAMVA PDF417 barcode: ${barcodeLayer.name} (${w}x${h})`);
+    }
+  }
+
+  // 3. Write pre-populated PSD buffer
+  console.log('[PhotopeaEngine] Serializing pre-populated PSD for Photopea...');
+  const preparedPsdBytes = Buffer.from(writePsd(psd, { generateThumbnail: true }));
+  console.log(`[PhotopeaEngine] PSD ready: ${Math.round(preparedPsdBytes.length / 1024)} KB`);
+
+  // 4. Build text operations list for Photopea ExtendScript
+  const cleanName = (s) => String(s || '').split('/').pop().trim();
+  const frontMappings = schema.sides?.front?.fieldMappings || {};
+  const backMappings = schema.sides?.back?.fieldMappings || {};
+
+  const frontTextOps = [];
+  for (const [code, info] of Object.entries(frontMappings)) {
+    const layerName = cleanName(typeof info === 'string' ? info : (info.layerName || info.name));
+    let val = getValueForAamvaField(code, formData);
+    if (val !== null && val !== undefined && layerName) {
+      if (code === 'DAG') {
+        const city = cleanAamvaText(formData.DAI || formData.city || '');
+        const state = cleanAamvaText(formData.DAJ || formData.state || 'TX');
+        const zip = cleanAamvaText(formData.DAK || formData.zip || '').slice(0, 5);
+        val = `${val}\\r${city}, ${state} ${zip}`.trim();
+      }
+      frontTextOps.push({
+        layerName,
+        newText: String(val).replace(/"/g, '\\"').replace(/\n/g, '\\r')
+      });
+    }
+  }
+
+  const backTextOps = [];
+  for (const [code, info] of Object.entries(backMappings)) {
+    const layerName = cleanName(typeof info === 'string' ? info : (info.layerName || info.name));
+    let val = getValueForAamvaField(code, formData);
+    if (val !== null && val !== undefined && layerName) {
+      backTextOps.push({
+        layerName,
+        newText: String(val).replace(/"/g, '\\"').replace(/\n/g, '\\r')
+      });
+    }
+  }
+
+  // Auto-synchronize Back text layers with Front cardholder data
+  if (backGroup && backGroup.children) {
+    function syncBackGroup(p) {
+      for (const l of p.children || []) {
+        const lower = l.name.toLowerCase();
+        if (l.text || (l.canvas && !l.children)) {
+          if (lower.includes('dob:') || lower.startsWith('dob')) {
+            backTextOps.push({
+              layerName: l.name,
+              newText: `DOB: ${formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob))}`
+            });
+          } else if (lower.includes('rest:') || lower.startsWith('rest')) {
+            backTextOps.push({
+              layerName: l.name,
+              newText: `REST: ${cleanAamvaText(formData.DCB || formData.restrictions || 'NONE')}`
+            });
+          } else if (lower.includes('end:') || lower.startsWith('end')) {
+            backTextOps.push({
+              layerName: l.name,
+              newText: `END: ${cleanAamvaText(formData.DCD || formData.endorsements || 'NONE')}`
+            });
+          } else if (lower.includes('class:') || lower.startsWith('class')) {
+            backTextOps.push({
+              layerName: l.name,
+              newText: `CLASS: ${cleanAamvaText(formData.DCA || formData.class || 'A')}`
+            });
+          }
+        }
+        if (l.children) syncBackGroup(l);
+      }
+    }
+    syncBackGroup(backGroup);
+  }
+
+  // 5. Launch hidden Photopea instance in headless Chrome
+  const ppConfig = { environment: { theme: 2, vmode: 2 } };
+  const ppUrl = 'https://www.photopea.com#' + encodeURIComponent(JSON.stringify(ppConfig));
+
+  const bridgeHtml = `<!DOCTYPE html>
+<html>
+<head><title>Photopea Native Renderer</title></head>
+<body>
+  <iframe id="pp" src="${ppUrl}" style="width:1200px; height:900px; border:none;"></iframe>
+  <script>
+    window.isReady = false;
+    window.addEventListener('message', (e) => {
+      if (e.data === 'done' && !window.isReady) window.isReady = true;
+    });
+  </script>
+</body>
+</html>`;
+
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(bridgeHtml);
+  });
+
+  await new Promise(res => server.listen(0, '127.0.0.1', res));
+  const port = server.address().port;
+
+  const executablePath = findBrowserExecutable();
+  console.log(`[PhotopeaEngine] Launching browser engine: ${executablePath}`);
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-gpu']
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}`, { timeout: 60000, waitUntil: 'domcontentloaded' });
+    console.log('[PhotopeaEngine] Waiting for Photopea initialization...');
+    await page.waitForFunction(() => window.isReady === true, { timeout: 45000 });
+    console.log('[PhotopeaEngine] Photopea ready!');
+
+    // 6. Send PSD buffer to Photopea
+    console.log('[PhotopeaEngine] Sending PSD buffer to Photopea...');
+    await page.evaluate((base64) => {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      document.getElementById('pp').contentWindow.postMessage(bytes.buffer, '*');
+    }, preparedPsdBytes.toString('base64'));
+
+    await page.evaluate(() => new Promise((res, rej) => {
+      const h = (e) => {
+        if (e.data === 'done') {
+          window.removeEventListener('message', h);
+          res();
+        }
+      };
+      window.addEventListener('message', h);
+      setTimeout(() => rej(new Error('Timeout opening PSD in Photopea')), 60000);
+    }));
+    console.log('[PhotopeaEngine] PSD opened in Photopea successfully!');
+
+    // 7. Render Front PNG
+    console.log('[PhotopeaEngine] Updating typography and rendering Front PNG...');
+    const frontScript = `
+      (function() {
+        var doc = app.activeDocument;
+        function find(p, n) {
+          if (!p || !p.layers) return null;
+          var leaf = String(n).split('/').pop().replace(/^\\s+|\\s+$/g, '').toLowerCase();
+          for (var i = 0; i < p.layers.length; i++) {
+            if (p.layers[i].name.toLowerCase() === leaf) return p.layers[i];
+            if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
+              var f = find(p.layers[i], n);
+              if (f) return f;
+            }
+          }
+          return null;
+        }
+
+        var front = find(doc, "Front");
+        var back = find(doc, "Back");
+        if (back) back.visible = false;
+        if (front) front.visible = true;
+
+        var fBorder = find(front || doc, "border");
+        if (fBorder) fBorder.visible = false;
+
+        // Update front text layers
+        var ops = ${JSON.stringify(frontTextOps)};
+        for (var j = 0; j < ops.length; j++) {
+          var l = find(front || doc, ops[j].layerName);
+          if (l && l.kind == LayerKind.TEXT) {
+            l.textItem.contents = ops[j].newText;
+          }
+        }
+
+        // Ensure border remains hidden
+        if (fBorder) fBorder.visible = false;
+        doc.saveToOE("png");
+      })();
+    `;
+
+    const frontPngBase64 = await page.evaluate((script) => {
+      return new Promise((resolve, reject) => {
+        const iframe = document.getElementById('pp');
+        let buf = null;
+        const handler = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            buf = e.data;
+          } else if (e.data === 'done' && buf) {
+            window.removeEventListener('message', handler);
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+            resolve(btoa(binary));
+          }
+        };
+        window.addEventListener('message', handler);
+        iframe.contentWindow.postMessage(script, '*');
+        setTimeout(() => reject(new Error('Timeout exporting Front PNG')), 35000);
+      });
+    }, frontScript);
+
+    const frontPngBuffer = Buffer.from(frontPngBase64, 'base64');
+    console.log(`[PhotopeaEngine] Front PNG rendered: ${Math.round(frontPngBuffer.length / 1024)} KB`);
+
+    // 8. Render Back PNG (if template has back side)
+    let backPngBuffer = null;
+    if (hasBackSide) {
+      console.log('[PhotopeaEngine] Updating Back typography and rendering Back PNG...');
+      const backScript = `
+        (function() {
+          var doc = app.activeDocument;
+          function find(p, n) {
+            if (!p || !p.layers) return null;
+            var leaf = String(n).split('/').pop().replace(/^\\s+|\\s+$/g, '').toLowerCase();
+            for (var i = 0; i < p.layers.length; i++) {
+              if (p.layers[i].name.toLowerCase() === leaf) return p.layers[i];
+              if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
+                var f = find(p.layers[i], n);
+                if (f) return f;
+              }
+            }
+            return null;
+          }
+
+          var front = find(doc, "Front");
+          var back = find(doc, "Back");
+          if (front) front.visible = false;
+          if (back) back.visible = true;
+
+          var bBorder = find(back || doc, "border");
+          if (bBorder) bBorder.visible = false;
+
+          // Update back text layers
+          var bOps = ${JSON.stringify(backTextOps)};
+          for (var k = 0; k < bOps.length; k++) {
+            var bl = find(back || doc, bOps[k].layerName);
+            if (bl && bl.kind == LayerKind.TEXT) {
+              bl.textItem.contents = bOps[k].newText;
+            }
+          }
+
+          if (bBorder) bBorder.visible = false;
+          doc.saveToOE("png");
+        })();
+      `;
+
+      const backPngBase64 = await page.evaluate((script) => {
+        return new Promise((resolve, reject) => {
+          const iframe = document.getElementById('pp');
+          let buf = null;
+          const handler = (e) => {
+            if (e.data instanceof ArrayBuffer) {
+              buf = e.data;
+            } else if (e.data === 'done' && buf) {
+              window.removeEventListener('message', handler);
+              const bytes = new Uint8Array(buf);
+              let binary = '';
+              for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+              resolve(btoa(binary));
+            }
+          };
+          window.addEventListener('message', handler);
+          iframe.contentWindow.postMessage(script, '*');
+          setTimeout(() => reject(new Error('Timeout exporting Back PNG')), 35000);
+        });
+      }, backScript);
+
+      backPngBuffer = Buffer.from(backPngBase64, 'base64');
+      console.log(`[PhotopeaEngine] Back PNG rendered: ${Math.round(backPngBuffer.length / 1024)} KB`);
+    }
+
+    // 9. Export Full Editable PSD
+    console.log('[PhotopeaEngine] Exporting complete multi-layer editable PSD...');
+    const psdScript = `
+      (function() {
+        var doc = app.activeDocument;
+        function find(p, n) {
+          if (!p || !p.layers) return null;
+          var leaf = String(n).split('/').pop().replace(/^\\s+|\\s+$/g, '').toLowerCase();
+          for (var i = 0; i < p.layers.length; i++) {
+            if (p.layers[i].name.toLowerCase() === leaf) return p.layers[i];
+            if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
+              var f = find(p.layers[i], n);
+              if (f) return f;
+            }
+          }
+          return null;
+        }
+        var front = find(doc, "Front");
+        var back = find(doc, "Back");
+        if (front) front.visible = true;
+        if (back) back.visible = false;
+        var fb = find(front || doc, "border");
+        if (fb) fb.visible = false;
+        var bb = find(back || doc, "border");
+        if (bb) bb.visible = false;
+        doc.saveToOE("psd");
+      })();
+    `;
+
+    const psdBase64 = await page.evaluate((script) => {
+      return new Promise((resolve, reject) => {
+        const iframe = document.getElementById('pp');
+        let buf = null;
+        const handler = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            buf = e.data;
+          } else if (e.data === 'done' && buf) {
+            window.removeEventListener('message', handler);
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+            resolve(btoa(binary));
+          }
+        };
+        window.addEventListener('message', handler);
+        iframe.contentWindow.postMessage(script, '*');
+        setTimeout(() => reject(new Error('Timeout exporting PSD')), 45000);
+      });
+    }, psdScript);
+
+    const outPsdBuffer = Buffer.from(psdBase64, 'base64');
+    console.log(`[PhotopeaEngine] Complete PSD exported: ${Math.round(outPsdBuffer.length / 1024)} KB`);
+
+    // 10. Generate ISO CR80 Print-Ready PDF
+    console.log('[PhotopeaEngine] Generating ISO/IEC 7810 CR80 Print-Ready PDF...');
+    const pdfDoc = await PDFDocument.create();
+    const cr80WidthPt = 242.64; // 85.6 mm
+    const cr80HeightPt = 153.00; // 53.98 mm
+
+    const page1 = pdfDoc.addPage([cr80WidthPt, cr80HeightPt]);
+    const embFront = await pdfDoc.embedPng(frontPngBuffer);
+    page1.drawImage(embFront, { x: 0, y: 0, width: cr80WidthPt, height: cr80HeightPt });
+
+    if (backPngBuffer) {
+      const page2 = pdfDoc.addPage([cr80WidthPt, cr80HeightPt]);
+      const embBack = await pdfDoc.embedPng(backPngBuffer);
+      page2.drawImage(embBack, { x: 0, y: 0, width: cr80WidthPt, height: cr80HeightPt });
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const pdfBuffer = Buffer.from(pdfBytes);
+    console.log(`[PhotopeaEngine] Print-Ready PDF generated: ${Math.round(pdfBuffer.length / 1024)} KB`);
+
+    const duration = Date.now() - startTime;
+    console.log(`[PhotopeaEngine] All operations completed in ${duration}ms!`);
+
+    return {
+      success: true,
+      psdBuffer: outPsdBuffer,
+      pngBuffer: frontPngBuffer,
+      frontPngBuffer,
+      backPngBuffer,
+      pdfBuffer,
+      barcodePayload,
+      width: psd.width,
+      height: psd.height,
+      duration
+    };
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}
+
+module.exports = {
+  renderWithPhotopea
+};
