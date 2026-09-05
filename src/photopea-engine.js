@@ -51,6 +51,34 @@ function findLayerInPsd(parent, name) {
 }
 
 /**
+ * Formats height for human-readable card display (e.g. 5'-10")
+ */
+function formatDisplayHeight(val) {
+  if (!val) return "5'-10\"";
+  const str = String(val).trim();
+  const m = str.match(/^(\d)['\-\s]+(\d{1,2})["']?$/);
+  if (m) return `${m[1]}'-${m[2]}"`;
+  const num = parseInt(str.replace(/\D/g, ''), 10);
+  if (num >= 36 && num <= 96) {
+    const ft = Math.floor(num / 12);
+    const inches = num % 12;
+    return `${ft}'-${String(inches).padStart(2, '0')}"`;
+  }
+  return "5'-10\"";
+}
+
+/**
+ * Returns authentic Texas Class description for the back of the card
+ */
+function getTexasClassDescription(cls) {
+  const c = String(cls || 'C').trim().toUpperCase();
+  if (c === 'A') return 'CLASS: A-Comb veh w/ GVWR ≥ 26,001 lbs provided towed veh ≥ 10,001 lbs';
+  if (c === 'B') return 'CLASS: B-Heavy straight vehicles w/ GVWR ≥ 26,001 lbs';
+  if (c === 'M') return 'CLASS: M-Motorcycles and mopeds';
+  return 'CLASS: C-Vehicles/passenger cars and light trucks w/ GVWR ≤ 26,000 lbs';
+}
+
+/**
  * Formats value for AAMVA element code
  */
 function getValueForAamvaField(fieldKey, formData) {
@@ -98,10 +126,10 @@ function getValueForAamvaField(fieldKey, formData) {
     }
     case 'DBC': {
       const s = String(formData.DBC || formData.sex || '1');
-      return s === '1' ? 'M' : (s === '2' ? 'F' : 'X');
+      return (s === '2' || s === 'F' || formData.sex === 'F') ? 'F' : 'M';
     }
     case 'DAU':
-      return formatAamvaHeight(formData.DAU || formData.height);
+      return formatDisplayHeight(formData.DAU || formData.height);
     case 'DAW':
       return cleanAamvaText(formData.DAW || formData.weight);
     case 'DAY':
@@ -109,7 +137,7 @@ function getValueForAamvaField(fieldKey, formData) {
     case 'DAZ':
       return cleanAamvaText(formData.DAZ || formData.hair).slice(0, 3);
     case 'DCA':
-      return cleanAamvaText(formData.DCA || formData.class || 'A');
+      return cleanAamvaText(formData.DCA || formData.class || 'C');
     case 'DCB':
       return cleanAamvaText(formData.DCB || formData.restrictions || 'NONE');
     case 'DCD':
@@ -118,6 +146,14 @@ function getValueForAamvaField(fieldKey, formData) {
       return cleanAamvaText(formData.DCF || formData.discriminator);
     case 'DDA':
       return cleanAamvaText(formData.DDA || formData.complianceType);
+    case 'DCA_DESC':
+      return getTexasClassDescription(formData.DCA || formData.class);
+    case 'DCB_BACK':
+      return `REST: ${cleanAamvaText(formData.DCB || formData.restrictions || 'NONE')}`;
+    case 'DCD_BACK':
+      return `END: ${cleanAamvaText(formData.DCD || formData.endorsements || 'NONE')}`;
+    case 'DBB_BACK':
+      return `DOB: ${formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob))}`;
     default:
       return formData[fieldKey] !== undefined ? cleanAamvaText(formData[fieldKey]) : null;
   }
@@ -315,6 +351,38 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
     }
   }
 
+  // Place Code 128 1D inventory barcode on the back
+  const barcode1dLayer = findLayerInPsd(backGroup, 'code128') || findLayerInPsd(psd, 'code128');
+  if (barcode1dLayer) {
+    const w = (barcode1dLayer.right || 0) - (barcode1dLayer.left || 0);
+    const h = (barcode1dLayer.bottom || 0) - (barcode1dLayer.top || 0);
+    if (w > 0 && h > 0) {
+      try {
+        const code128Text = cleanAamvaText(formData.inventoryNumber || formData.DCF || '10000415244').slice(0, 11);
+        const b1Png = await bwipjs.toBuffer({
+          bcid: 'code128',
+          text: code128Text,
+          scale: 3,
+          rotate: 'L',
+          includetext: false
+        });
+        const b1Img = await loadImage(b1Png);
+        const b1Canvas = createCanvas(w, h);
+        const b1Ctx = b1Canvas.getContext('2d');
+        b1Ctx.fillStyle = '#FFFFFF';
+        b1Ctx.fillRect(0, 0, w, h);
+        const scale = Math.min(w / b1Img.width, h / b1Img.height);
+        const dw = b1Img.width * scale;
+        const dh = b1Img.height * scale;
+        b1Ctx.drawImage(b1Img, (w - dw)/2, (h - dh)/2, dw, dh);
+        barcode1dLayer.canvas = b1Canvas;
+        console.log(`[PhotopeaEngine] Updated Code 128 barcode: ${barcode1dLayer.name} (${w}x${h})`);
+      } catch (e) {
+        console.warn('[PhotopeaEngine] 1D Code 128 warning:', e.message);
+      }
+    }
+  }
+
   // 3. Write pre-populated PSD buffer
   console.log('[PhotopeaEngine] Serializing pre-populated PSD for Photopea...');
   const preparedPsdBytes = Buffer.from(writePsd(psd, { generateThumbnail: true }));
@@ -330,15 +398,57 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
   const frontMappings = schema.sides?.front?.fieldMappings || {};
   const backMappings = schema.sides?.back?.fieldMappings || {};
 
+  // Auto-populate official Texas AAMVA 2025 mappings if not already supplied
+  const isTexasTemplate = (formData.DAJ || formData.state || 'TX').toUpperCase() === 'TX'
+    || !!findLayerInPsd(frontGroup || psd, 'CARLISLE')
+    || !!findLayerInPsd(frontGroup || psd, 'EDWARD CULLEN');
+
+  if (Object.keys(frontMappings).length === 0 && isTexasTemplate) {
+    console.log('[PhotopeaEngine] Using official Texas AAMVA 2025 field mappings.');
+    const txMappings = {
+      'DCS': 'CARLISLE',
+      'NAME_FIRST_MIDDLE': 'EDWARD CULLEN',
+      'DAQ': '85316244',
+      'DBB': '09/21/1990',
+      'DBA': '09/21/2026',
+      'DBD': '07/11/2020',
+      'DAG': '123 STREET CITY,tx 70000',
+      'DCA': 'A',
+      'DCB': 'NONE',
+      'DCD': 'NONE копия',
+      'DAU': "5'-10''",
+      'DBC': 'M',
+      'DAY': 'BRO',
+      'DCF': '35838232126640572484',
+      'DBB_GHOST': '09/21/1990'
+    };
+    for (const [code, lName] of Object.entries(txMappings)) {
+      frontMappings[code] = { layerName: lName };
+    }
+  }
+
+  if (Object.keys(backMappings).length === 0 && isTexasTemplate) {
+    console.log('[PhotopeaEngine] Using official Texas Back field mappings.');
+    const txBack = {
+      'DCA_DESC': 'CLASS: A-Comb veh w/ GVWR ≥ 26,001 lbs provided towed veh ≥ 10,',
+      'DCB_BACK': 'REST: NONE',
+      'DCD_BACK': 'END: NONE',
+      'DBB_BACK': 'DOB: 09/21/1990'
+    };
+    for (const [code, lName] of Object.entries(txBack)) {
+      backMappings[code] = { layerName: lName };
+    }
+  }
+
   const frontTextOps = [];
   for (const [code, info] of Object.entries(frontMappings)) {
     const layerName = cleanName(typeof info === 'string' ? info : (info.layerName || info.name));
     let val = getValueForAamvaField(code, formData);
     if (val !== null && val !== undefined && layerName) {
       if (code === 'DAG') {
-        const city = cleanAamvaText(formData.DAI || formData.city || '');
+        const city = cleanAamvaText(formData.DAI || formData.city || 'AUSTIN');
         const state = cleanAamvaText(formData.DAJ || formData.state || 'TX');
-        const zip = cleanAamvaText(formData.DAK || formData.zip || '').slice(0, 5);
+        const zip = cleanAamvaText(formData.DAK || formData.zip || '78701').slice(0, 5);
         val = `${val}\r${city}, ${state} ${zip}`.trim();
       }
       frontTextOps.push({
@@ -384,7 +494,13 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
           } else if (lower.includes('class:') || lower.startsWith('class')) {
             backTextOps.push({
               layerName: l.name,
-              newText: `CLASS: ${cleanAamvaText(formData.DCA || formData.class || 'A')}`
+              newText: getTexasClassDescription(formData.DCA || formData.class)
+            });
+          } else if (lower === '10000415244') {
+            const inv = cleanAamvaText(formData.inventoryNumber || formData.DCF || '10000415244').slice(0, 11);
+            backTextOps.push({
+              layerName: l.name,
+              newText: inv
             });
           }
         }
@@ -481,13 +597,14 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
     const frontScript = `
       (function() {
         var doc = app.activeDocument;
+
         function find(p, n) {
           if (!p || !p.layers) return null;
-          var tName = String(n).toLowerCase();
-          if (tName.indexOf(' / ') !== -1) tName = tName.split(' / ').pop();
-          tName = tName.replace(/^\\s+|\\s+$/g, '');
+          var lower = String(n).toLowerCase();
+          if (lower.indexOf(' / ') !== -1) lower = lower.split(' / ').pop();
+          lower = lower.replace(/^\\s+|\\s+$/g, '');
           for (var i = 0; i < p.layers.length; i++) {
-            if (p.layers[i].name.toLowerCase() === tName) return p.layers[i];
+            if (p.layers[i].name.toLowerCase() === lower) return p.layers[i];
             if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
               var f = find(p.layers[i], n);
               if (f) return f;
@@ -518,55 +635,80 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
         } catch(e) {}
 
         // Update front text layers
-        var ops = ${JSON.stringify(frontTextOps)};
         var dataGroup = find(front || doc, "Data") || front || doc;
 
-        function updateAllMatching(p, name, text) {
-          if (!p || !p.layers) return 0;
-          var count = 0;
-          var tName = String(name).toLowerCase().replace(/^\s+|\s+$/g, '');
-          for (var i = 0; i < p.layers.length; i++) {
-            var lyr = p.layers[i];
-            if (lyr.name.toLowerCase() === tName && lyr.kind == LayerKind.TEXT) {
-              lyr.textItem.contents = text;
-              count++;
-            }
-            if (lyr.typename === "LayerSet" || (lyr.layers && lyr.layers.length > 0)) {
-              count += updateAllMatching(lyr, name, text);
-            }
-          }
-          return count;
-        }
-
-        for (var j = 0; j < ops.length; j++) {
-          try {
-            var updated = updateAllMatching(dataGroup, ops[j].layerName, ops[j].newText);
-            if (updated === 0) {
-              updateAllMatching(front || doc, ops[j].layerName, ops[j].newText);
-            }
-          } catch(e) {}
-        }
-
-        // Explicitly guarantee both main DOB and ghost photo DOB are synchronized
-        try {
-          var dobVal = "${formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob))}";
-          if (dataGroup && dataGroup.layers) {
-            for (var k = 0; k < dataGroup.layers.length; k++) {
-              var dl = dataGroup.layers[k];
-              if (dl.kind == LayerKind.TEXT) {
-                var dName = dl.name.toLowerCase();
-                // Main DOB layer (bounds around [1185, 724])
-                if (dName === "09/21/1990" || (dl.bounds && dl.bounds[0] > 1100 && dl.bounds[0] < 1500 && dl.bounds[1] > 650 && dl.bounds[1] < 850)) {
-                  dl.textItem.contents = dobVal;
-                }
-                // Ghost DOB layer over ghost photo (bounds around [2250, 1339])
-                if (dl.bounds && dl.bounds[0] > 2000 && dl.bounds[1] > 1300) {
-                  dl.textItem.contents = dobVal;
-                }
+        function setT(n, val) {
+          if (!dataGroup || val === null || val === undefined) return;
+          var l = find(dataGroup, n);
+          if (l) {
+            try {
+              if (typeof LayerKind !== 'undefined' && l.kind == LayerKind.TEXT) {
+                l.textItem.contents = val;
+              } else if (l.kind == 2 || l.textItem) {
+                l.textItem.contents = val;
               }
+            } catch(e) {}
+          }
+        }
+
+        // 1. From frontTextOps
+        var ops = ${JSON.stringify(frontTextOps)};
+        for (var j = 0; j < ops.length; j++) {
+          setT(ops[j].layerName, ops[j].newText);
+        }
+
+        // 2. Direct named layers in Texas Data group
+        var lastNameVal = ${JSON.stringify(cleanAamvaText(formData.DCS || formData.lastName || ''))};
+        var firstNameVal = ${JSON.stringify(cleanAamvaText(formData.DAC || formData.firstName || ''))};
+        var middleNameVal = ${JSON.stringify(cleanAamvaText(formData.DAD || formData.middleName || ''))};
+        var firstMiddleVal = (firstNameVal + ' ' + middleNameVal).replace(/^\\s+|\\s+$/g, '');
+        var dlNumVal = ${JSON.stringify(cleanAamvaText(formData.DAQ || formData.licenseNumber || ''))};
+        var classVal = ${JSON.stringify(cleanAamvaText(formData.DCA || formData.class || 'C'))};
+        var expVal = ${JSON.stringify(formatDisplayDate(formatAamvaDate(formData.DBA || formData.expDate)))};
+        var issVal = ${JSON.stringify(formatDisplayDate(formatAamvaDate(formData.DBD || formData.issueDate)))};
+        var dobVal = ${JSON.stringify(formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob)))};
+        var addrVal = ${JSON.stringify(cleanAamvaText(formData.DAG || formData.address || ''))};
+        var cityVal = ${JSON.stringify(cleanAamvaText(formData.DAI || formData.city || 'AUSTIN'))};
+        var stVal = ${JSON.stringify(cleanAamvaText(formData.DAJ || formData.state || 'TX'))};
+        var zipVal = ${JSON.stringify(cleanAamvaText(formData.DAK || formData.zip || '78701').slice(0, 5))};
+        var fullAddrVal = addrVal + "\\r" + cityVal + ", " + stVal + " " + zipVal;
+        var restVal = ${JSON.stringify(cleanAamvaText(formData.DCB || formData.restrictions || 'NONE'))};
+        var endVal = ${JSON.stringify(cleanAamvaText(formData.DCD || formData.endorsements || 'NONE'))};
+        var hgtVal = ${JSON.stringify(formatDisplayHeight(formData.DAU || formData.height))};
+        var rawSex = ${JSON.stringify(String(formData.DBC || formData.sex || '1'))};
+        var sexVal = (rawSex === '2' || rawSex === 'F') ? 'F' : 'M';
+        var eyeVal = ${JSON.stringify(cleanAamvaText(formData.DAY || formData.eyes || 'BRO').slice(0, 3))};
+        var ddVal = ${JSON.stringify(cleanAamvaText(formData.DCF || formData.discriminator || '35838232126640572484'))};
+
+        if (lastNameVal) setT("CARLISLE", lastNameVal);
+        if (firstMiddleVal) setT("EDWARD CULLEN", firstMiddleVal);
+        if (dlNumVal) setT("85316244", dlNumVal);
+        if (classVal) setT("A", classVal);
+        if (expVal) setT("09/21/2026", expVal);
+        if (issVal) setT("07/11/2020", issVal);
+        if (addrVal) setT("123 STREET CITY,tx 70000", fullAddrVal);
+        if (restVal) setT("NONE", restVal);
+        if (endVal) setT("NONE копия", endVal);
+        if (hgtVal) setT("5'-10''", hgtVal);
+        if (sexVal) setT("M", sexVal);
+        if (eyeVal) setT("BRO", eyeVal);
+        if (ddVal) setT("35838232126640572484", ddVal);
+
+        // Synchronize all DOB layers (both main DOB and ghost DOB named '09/21/1990')
+        if (dobVal && dataGroup && dataGroup.layers) {
+          for (var k = 0; k < dataGroup.layers.length; k++) {
+            var dl = dataGroup.layers[k];
+            if (dl.name === "09/21/1990") {
+              try {
+                if (typeof LayerKind !== 'undefined' && dl.kind == LayerKind.TEXT) {
+                  dl.textItem.contents = dobVal;
+                } else if (dl.kind == 2 || dl.textItem) {
+                  dl.textItem.contents = dobVal;
+                }
+              } catch(e) {}
             }
           }
-        } catch(e) {}
+        }
 
         // Ensure border remains hidden
         if (fBorder) fBorder.visible = false;
@@ -591,7 +733,17 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
         };
         window.addEventListener('message', handler);
         iframe.contentWindow.postMessage(script, '*');
-        setTimeout(() => reject(new Error('Timeout exporting Front PNG')), 35000);
+        setTimeout(() => {
+          if (buf) {
+            window.removeEventListener('message', handler);
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+            resolve(btoa(binary));
+          } else {
+            reject(new Error('Timeout exporting Front PNG'));
+          }
+        }, 50000);
       });
     }, frontScript);
 
@@ -605,11 +757,14 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
       const backScript = `
         (function() {
           var doc = app.activeDocument;
+
           function find(p, n) {
             if (!p || !p.layers) return null;
-            var leaf = String(n).split('/').pop().replace(/^\\s+|\\s+$/g, '').toLowerCase();
+            var lower = String(n).toLowerCase();
+            if (lower.indexOf(' / ') !== -1) lower = lower.split(' / ').pop();
+            lower = lower.replace(/^\\s+|\\s+$/g, '');
             for (var i = 0; i < p.layers.length; i++) {
-              if (p.layers[i].name.toLowerCase() === leaf) return p.layers[i];
+              if (p.layers[i].name.toLowerCase() === lower) return p.layers[i];
               if (p.layers[i].typename === "LayerSet" || (p.layers[i].layers && p.layers[i].layers.length > 0)) {
                 var f = find(p.layers[i], n);
                 if (f) return f;
@@ -626,12 +781,52 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
           var bBorder = find(back || doc, "border");
           if (bBorder) bBorder.visible = false;
 
-          // Update back text layers
+          var bDataGroup = find(back || doc, "Data") || back || doc;
+
+          function setBT(n, val) {
+            if (!bDataGroup || val === null || val === undefined) return;
+            var l = find(bDataGroup, n);
+            if (l) {
+              try {
+                if (typeof LayerKind !== 'undefined' && l.kind == LayerKind.TEXT) {
+                  l.textItem.contents = val;
+                } else if (l.kind == 2 || l.textItem) {
+                  l.textItem.contents = val;
+                }
+              } catch(e) {}
+            }
+          }
+
+          // Update back text layers from bOps
           var bOps = ${JSON.stringify(backTextOps)};
           for (var k = 0; k < bOps.length; k++) {
-            var bl = find(back || doc, bOps[k].layerName);
-            if (bl && bl.kind == LayerKind.TEXT) {
-              bl.textItem.contents = bOps[k].newText;
+            setBT(bOps[k].layerName, bOps[k].newText);
+          }
+
+          // Direct Back Data layers synchronization
+          if (bDataGroup && bDataGroup.layers) {
+            var classDesc = ${JSON.stringify(getTexasClassDescription(formData.DCA || formData.class))};
+            var restText = "REST: " + ${JSON.stringify(cleanAamvaText(formData.DCB || formData.restrictions || 'NONE'))};
+            var endText = "END: " + ${JSON.stringify(cleanAamvaText(formData.DCD || formData.endorsements || 'NONE'))};
+            var dobText = "DOB: " + ${JSON.stringify(formatDisplayDate(formatAamvaDate(formData.DBB || formData.dob)))};
+            var invText = ${JSON.stringify(cleanAamvaText(formData.inventoryNumber || formData.DCF || '10000415244').slice(0, 11))};
+
+            for (var m = 0; m < bDataGroup.layers.length; m++) {
+              var bLayer = bDataGroup.layers[m];
+              var bln = bLayer.name.toLowerCase();
+              try {
+                if (bln.indexOf('class:') === 0 || bln.indexOf('class') === 0) {
+                  bLayer.textItem.contents = classDesc;
+                } else if (bln.indexOf('rest:') === 0 || bln.indexOf('rest') === 0) {
+                  bLayer.textItem.contents = restText;
+                } else if (bln.indexOf('end:') === 0 || bln.indexOf('end') === 0) {
+                  bLayer.textItem.contents = endText;
+                } else if (bln.indexOf('dob:') === 0 || bln.indexOf('dob') === 0) {
+                  bLayer.textItem.contents = dobText;
+                } else if (bln === '10000415244' || bln.indexOf('10000') === 0) {
+                  bLayer.textItem.contents = invText;
+                }
+              } catch(e) {}
             }
           }
 
@@ -657,7 +852,17 @@ async function renderWithPhotopea(psdInput, formData, options = {}) {
           };
           window.addEventListener('message', handler);
           iframe.contentWindow.postMessage(script, '*');
-          setTimeout(() => reject(new Error('Timeout exporting Back PNG')), 35000);
+          setTimeout(() => {
+            if (buf) {
+              window.removeEventListener('message', handler);
+              const bytes = new Uint8Array(buf);
+              let binary = '';
+              for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+              resolve(btoa(binary));
+            } else {
+              reject(new Error('Timeout exporting Back PNG'));
+            }
+          }, 50000);
         });
       }, backScript);
 

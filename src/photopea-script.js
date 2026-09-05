@@ -280,7 +280,7 @@ function buildPhotopeaScript({
   function updateText(parent, layerName, newText) {
     var l = findLayerByName(parent, layerName);
     if (l) {
-      if (l.kind == LayerKind.TEXT) {
+      if (l.kind == 2 || (typeof LayerKind !== 'undefined' && l.kind == LayerKind.TEXT) || l.textItem != null) {
         l.textItem.contents = newText;
         return true;
       }
