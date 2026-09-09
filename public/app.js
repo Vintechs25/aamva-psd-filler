@@ -935,7 +935,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Helper: Trims transparent borders around a canvas, adding clean padding
   function cropCanvasToContent(sourceCanvas, padding = 12) {
-    const sCtx = sourceCanvas.getContext('2d');
+    const sCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
     const w = sourceCanvas.width;
     const h = sourceCanvas.height;
     const imgData = sCtx.getImageData(0, 0, w, h);
@@ -1467,7 +1467,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       offCanvas.width = w;
       offCanvas.height = h;
-      const offCtx = offCanvas.getContext('2d');
+      const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
       offCtx.drawImage(currentUploadedImage, 0, 0, w, h);
 
       const imgData = offCtx.getImageData(0, 0, w, h);

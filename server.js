@@ -582,6 +582,43 @@ app.get('/api/download/:jobId/:format', (req, res) => {
   res.status(400).json({ success: false, error: 'Unsupported format' });
 });
 
+// Generate Barcode Image endpoint
+app.post('/api/generate-barcode-image', async (req, res) => {
+  try {
+    const { payload, width = 300, height = 100 } = req.body;
+    
+    if (!payload) {
+      return res.status(400).json({ success: false, error: 'Payload is required' });
+    }
+    
+    // Use bwip-js to generate barcode
+    const bwipjs = require('bwip-js');
+    
+    // Generate barcode as PNG buffer
+    const pngBuffer = await new Promise((resolve, reject) => {
+      bwipjs.toBuffer({
+        bcid: 'pdf417',
+        text: payload,
+        scale: 2,
+        width: width,
+        height: height,
+        eclevel: 5,
+        columns: 14
+      }, (err, png) => {
+        if (err) reject(err);
+        else resolve(png);
+      });
+    });
+    
+    res.set('Content-Type', 'image/png');
+    res.send(pngBuffer);
+    
+  } catch (error) {
+    console.error('Barcode generation error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate barcode image' });
+  }
+});
+
 // Start Server
 app.listen(PORT, () => {
   console.log('================================================================');

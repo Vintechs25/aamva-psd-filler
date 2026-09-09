@@ -209,8 +209,8 @@
     form.querySelectorAll('input, select').forEach(field => {
       const tag = getFieldTag(field);
       if (barcodeFields.includes(tag)) {
-        field.addEventListener('input', () => debounce(generateBarcodePreview, 500));
-        field.addEventListener('change', () => debounce(generateBarcodePreview, 500));
+        field.addEventListener('input', debounce(generateBarcodePreview, 500));
+        field.addEventListener('change', debounce(generateBarcodePreview, 500));
       }
     });
   }
