@@ -1778,6 +1778,18 @@ document.addEventListener('DOMContentLoaded', () => {
         btnViewFront.className = 'px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs font-semibold transition flex items-center gap-1.5';
       }
     });
+
+    // 3D View Button
+    const btnView3d = document.getElementById('btnView3d');
+    if (btnView3d && window.CardViewer) {
+      btnView3d.addEventListener('click', () => {
+        if (state.frontPreviewBase64 || state.backPreviewBase64) {
+          window.CardViewer.show(state.frontPreviewBase64, state.backPreviewBase64);
+        } else {
+          showToast('Please generate a card first to view in 3D', 'warning');
+        }
+      });
+    }
   }
 
   // Start initialization
