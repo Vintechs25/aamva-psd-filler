@@ -312,14 +312,6 @@
     }
   }
 
-  // Helper to decode payload back to field data for existing API
-  function decodePayloadForBarcodeApi(payload) {
-    // The /api/generate-barcode endpoint expects field data, not raw payload
-    // Since we already have the form data, we can use that directly
-    const formData = collectBarcodeData();
-    return formData;
-  }
-
   // Generate AAMVA payload (client-side version)
   function generateAamvaPayload(data) {
     try {
@@ -472,53 +464,23 @@
         return canvas;
       }
       
-      // Fallback: call server API
-      // Try the new endpoint first, then fall back to the existing /api/generate-barcode
-      let response;
-      
-      try {
-        response = await fetch('/api/generate-barcode-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            payload: payload,
-            width: width,
-            height: height
-          })
-        });
-        
-        if (response.ok) {
-          const blob = await response.blob();
-          const img = await createImageFromBlob(blob);
-          return img;
-        }
-      } catch (e) {
-        // New endpoint not available, try the existing one
-      }
-      
-      // Fall back to existing /api/generate-barcode endpoint
-      response = await fetch('/api/generate-barcode', {
+      // Fallback: Use server API if bwip-js not loaded
+      const formData = collectBarcodeData();
+      const response = await fetch('/api/generate-barcode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(decodePayloadForBarcodeApi(payload))
+        body: JSON.stringify(formData)
       });
       
       if (!response.ok) throw new Error('Failed to generate barcode');
       
       const data = await response.json();
-      console.log('Barcode API response:', { hasPreview: !!data.previewBase64, previewLength: data.previewBase64?.length });
       
       if (data.previewBase64) {
         const img = new Image();
         await new Promise((resolve, reject) => {
-          img.onload = () => {
-            console.log('Barcode image loaded:', { width: img.width, height: img.height });
-            resolve(img);
-          };
-          img.onerror = (err) => {
-            console.error('Barcode image failed to load:', err);
-            reject(err);
-          };
+          img.onload = resolve;
+          img.onerror = reject;
           img.src = data.previewBase64;
         });
         return img;
