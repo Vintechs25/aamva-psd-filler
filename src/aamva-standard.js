@@ -10,7 +10,7 @@ const JURISDICTION_IIN_MAP = {
   'AK': { name: 'Alaska', iin: '636059' },
   'AZ': { name: 'Arizona', iin: '636026' },
   'AR': { name: 'Arkansas', iin: '636021' },
-  'CA': { name: 'California', iin: '636014' },
+  'CA': { name: 'California', iin: '636000' },
   'CO': { name: 'Colorado', iin: '636020' },
   'CT': { name: 'Connecticut', iin: '636006' },
   'DE': { name: 'Delaware', iin: '636011' },
@@ -49,10 +49,10 @@ const JURISDICTION_IIN_MAP = {
   'SC': { name: 'South Carolina', iin: '636001' },
   'SD': { name: 'South Dakota', iin: '636042' },
   'TN': { name: 'Tennessee', iin: '636053' },
-  'TX': { name: 'Texas', iin: '636015' },
+  'TX': { name: 'Texas', iin: '636014' },
   'UT': { name: 'Utah', iin: '636040' },
   'VT': { name: 'Vermont', iin: '636024' },
-  'VA': { name: 'Virginia', iin: '636000' },
+  'VA': { name: 'Virginia', iin: '636015' },
   'WA': { name: 'Washington', iin: '636045' },
   'WV': { name: 'West Virginia', iin: '636061' },
   'WI': { name: 'Wisconsin', iin: '636031' },
@@ -229,12 +229,9 @@ function generateAamvaBarcodePayload(data, options = {}) {
   const restrictions = cleanAamvaText(data.DCB || data.restrictions || 'NONE');
   const endorsements = cleanAamvaText(data.DCD || data.endorsements || 'NONE');
 
-  // Build element array
+  // Build element array in AAMVA D20 recommended order
+  // Name fields first (DCS, DAC, DAD)
   const elements = [
-    `DCA${vClass}`,
-    `DCB${restrictions}`,
-    `DCD${endorsements}`,
-    `DBA${exp}`,
     `DCS${lastName.slice(0, 40)}`,
     `DAC${firstName.slice(0, 40)}`
   ];
@@ -242,11 +239,27 @@ function generateAamvaBarcodePayload(data, options = {}) {
   if (middleName) {
     elements.push(`DAD${middleName.slice(0, 40)}`);
   }
+  
+  // Date fields (DBD, DBB, DBA)
   elements.push(`DBD${iss}`);
   elements.push(`DBB${dob}`);
+  elements.push(`DBA${exp}`);
+  
+  // Demographic fields (DBC, DAY, DAU, DAZ, DAW)
   elements.push(`DBC${sex}`);
   elements.push(`DAY${eyes}`);
   elements.push(`DAU${height}`);
+
+  if (data.DAZ || data.hair) {
+    elements.push(`DAZ${cleanAamvaText(data.DAZ || data.hair).slice(0, 3)}`);
+  }
+  
+  if (data.DAW || data.weight) {
+    const w = cleanAamvaText(data.DAW || data.weight);
+    elements.push(`DAW${w.includes('LB') ? w : `${w} lb`}`);
+  }
+  
+  // Address fields (DAG, DAH, DAI, DAJ, DAK)
   elements.push(`DAG${street.slice(0, 35)}`);
 
   if (data.DAH || data.address2) {
@@ -256,21 +269,23 @@ function generateAamvaBarcodePayload(data, options = {}) {
   elements.push(`DAI${city.slice(0, 20)}`);
   elements.push(`DAJ${state}`);
   elements.push(`DAK${zip}`);
+  
+  // ID and discriminator fields (DAQ, DCF, DCG)
   elements.push(`DAQ${dlNumber.slice(0, 25)}`);
   elements.push(`DCF${discriminator.slice(0, 25)}`);
   elements.push(`DCG${country}`);
+  
+  // Truncation flags (DDE, DDF, DDG)
   elements.push(`DDE${dde}`);
   elements.push(`DDF${ddf}`);
   elements.push(`DDG${ddg}`);
+  
+  // Vehicle class and endorsements (DCA, DCB, DCD)
+  elements.push(`DCA${vClass}`);
+  elements.push(`DCB${restrictions}`);
+  elements.push(`DCD${endorsements}`);
 
   // Optional Enhanced Fields
-  if (data.DAZ || data.hair) {
-    elements.push(`DAZ${cleanAamvaText(data.DAZ || data.hair).slice(0, 3)}`);
-  }
-  if (data.DAW || data.weight) {
-    const w = cleanAamvaText(data.DAW || data.weight);
-    elements.push(`DAW${w.includes('LB') ? w : `${w} lb`}`);
-  }
   if (data.DDA || data.complianceType) {
     elements.push(`DDA${data.DDA || data.complianceType}`);
   }
@@ -297,8 +312,8 @@ function generateAamvaBarcodePayload(data, options = {}) {
   }
 
   // Construct Subfile Data
-  // Subfile begins with subfile type ('DL' or 'ID'), elements separated by CR, ends with CR
-  const subfileBody = subfileType + elements.join(CR) + CR;
+  // Subfile data consists of elements separated by CR, ending with CR (subfile type is in header designator only)
+  const subfileBody = elements.join(CR) + CR;
 
   // Header length is 21 bytes (fixed) + 10 bytes per subfile designator
   // Offset to Subfile: 0031
@@ -351,8 +366,8 @@ function decodeAamvaBarcode(raw) {
     };
   }
 
-  // Parse element tags (3 letters e.g. DCS, DAC, etc. followed by data until CR or LF)
-  const regex = /([D|Z][A-Z0-9]{2})([^\r\n]*)/g;
+  // Parse element tags (3 uppercase letters e.g. DCS, DAC, etc. followed by data until CR or LF)
+  const regex = /([DZ][A-Z]{2})([^\r\n]*)/g;
   let m;
   while ((m = regex.exec(raw)) !== null) {
     const tag = m[1];
