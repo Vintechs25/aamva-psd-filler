@@ -630,6 +630,11 @@
     if (requiredCount > 0 && !complianceState.visible) {
       showWidget();
     }
+
+    // Trigger celebration at high scores
+    if (totalScore >= 95) {
+      triggerCelebration(totalScore);
+    }
   }
 
   // Update score display
@@ -749,13 +754,26 @@
     minimized?.classList.add('hidden');
   }
 
+  // Trigger celebration
+  function triggerCelebration(score) {
+    // Use window.CelebrationEffects if available
+    if (window.CelebrationEffects && window.CelebrationEffects.trigger) {
+      window.CelebrationEffects.trigger(score);
+    }
+  }
+
   // Expose API
   window.ComplianceScore = {
     show: showWidget,
     hide: hideWidget,
     toggle: () => complianceState.visible ? hideWidget() : showWidget(),
     getScore: () => complianceState.score,
-    refresh: calculateComplianceScore
+    refresh: calculateComplianceScore,
+    setCelebrationThreshold: (threshold) => {
+      if (window.CelebrationEffects) {
+        window.CelebrationEffects.setThreshold(threshold);
+      }
+    }
   };
 
   // Initialize when DOM is ready

@@ -352,6 +352,139 @@
   transform: translate(-50%, -50%) rotateY(180deg);
 }
 
+/* Enhanced 3D Flip Animation */
+#card3d {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), 
+              box-shadow 0.3s ease, 
+              filter 0.3s ease;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+#card3d.flip {
+  transform: translate(-50%, -50%) rotateY(180deg);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* Flip animation keyframes */
+@keyframes flipIn {
+  0% {
+    transform: translate(-50%, -50%) rotateY(-180deg) scale(0.95);
+    opacity: 0;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotateY(-90deg) scale(1.05);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes flipOut {
+  0% {
+    transform: translate(-50%, -50%) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotateY(90deg) scale(1.05);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotateY(180deg) scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* Card face transitions */
+.card-face {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+.card-face.front {
+  transform: rotateY(0deg) translateZ(0);
+  z-index: 2;
+}
+
+.card-face.back {
+  transform: rotateY(180deg) translateZ(0);
+  z-index: 1;
+}
+
+#card3d.flip .card-face.front {
+  transform: rotateY(180deg) translateZ(0);
+  z-index: 1;
+}
+
+#card3d.flip .card-face.back {
+  transform: rotateY(0deg) translateZ(0);
+  z-index: 2;
+}
+
+/* Holographic shimmer effect for front */
+.card-face.front::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  transform: rotate(45deg);
+  animation: shimmer 3s ease-in-out infinite;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%) rotate(45deg); }
+  100% { transform: translateX(100%) rotate(45deg); }
+}
+
+/* Glow effect on hover */
+#card3d:not(.flip):hover {
+  box-shadow: 
+    0 50px 100px -20px rgba(0, 0, 0, 0.8),
+    0 0 80px rgba(59, 130, 246, 0.1);
+}
+
+/* Bounce animation for card */
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+#card3d.bounce {
+  animation: bounce 0.5s ease;
+}
+
+/* Spin animation for loading */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+#card3d.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   #cardViewerContainer {
