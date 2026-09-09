@@ -5,10 +5,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { readPsd, writePsd, initializeCanvas } = require('ag-psd');
 const bwipjs = require('bwip-js');
 const { PDFDocument } = require('pdf-lib');
+const { getFontInfo, ensureFontsLoaded, setTexasFontsDir, loadTexasFonts } = require('./font-manager');
 const {
   AAMVA_ELEMENTS,
   generateAamvaBarcodePayload,
@@ -287,6 +288,11 @@ function analyzePsdFile(filePathOrBuffer) {
       layerInfo.fontName = layer.text.style?.font?.name || 'Default';
       layerInfo.fontSize = layer.text.style?.fontSize || 12;
       layerInfo.fillColor = layer.text.style?.fillColor || { r: 0, g: 0, b: 0 };
+      
+      // Resolve font using font manager
+      const fontInfo = getFontInfo(layer);
+      layerInfo.resolvedFontName = fontInfo.fontName;
+      layerInfo.fontString = fontInfo.fontString;
     } else if (isImage) {
       summary.imageLayers++;
     }
@@ -339,18 +345,18 @@ function renderTextLayerCanvas(layer, newText) {
   const tCtx = tCanvas.getContext('2d');
 
   const style = layer.text?.style || {};
+  const fontInfo = getFontInfo(layer);
   let fontSize = style.fontSize || Math.round(height * 0.75);
-  const fontName = style.font?.name || 'Arial-BoldMT';
-  const isBold = /bold/i.test(fontName);
 
-  tCtx.font = `${isBold ? 'bold ' : ''}${fontSize}px Arial, sans-serif`;
+  // Use the resolved font from the font manager
+  tCtx.font = `${fontInfo.fontString} ${fontSize}px`;
 
   // Auto-fit calculation
   let textWidth = tCtx.measureText(newText).width;
   if (textWidth > width && width > 30) {
     const scale = width / textWidth;
     fontSize = Math.max(10, Math.floor(fontSize * scale * 0.96));
-    tCtx.font = `${isBold ? 'bold ' : ''}${fontSize}px Arial, sans-serif`;
+    tCtx.font = `${fontInfo.fontString} ${fontSize}px`;
   }
 
   const fc = style.fillColor || { r: 0, g: 0, b: 0 };
@@ -484,6 +490,11 @@ async function processLayerImage(imageInput, targetWidth, targetHeight, options 
  * styling, positions, and all design/security elements.
  */
 async function fillPsd(psdInput, formData, customMappings = {}, assets = {}, options = {}) {
+  // Load fonts if custom font directory is specified
+  if (options.fontsDir) {
+    setTexasFontsDir(options.fontsDir);
+    ensureFontsLoaded();
+  }
   let psd;
   if (typeof psdInput === 'string') {
     psd = readPsd(fs.readFileSync(psdInput), { skipCompositeImageData: false, skipLayerImageData: false });
