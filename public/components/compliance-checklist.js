@@ -466,7 +466,7 @@
         // Apply calculated fields
         Object.keys(result.data).forEach(key => {
           const field = document.querySelector(`[name="${key}"], #field_${key}`);
-          if (field && !field.value.trim()) {
+          if (field && (field.value.trim() === '' || field.value.trim() === '—')) {
             field.value = result.data[key];
             validateField(field);
           }

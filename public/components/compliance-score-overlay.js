@@ -21,9 +21,14 @@
     'WY': '636040', 'PR': '636042', 'GU': '636043', 'VI': '636044'
   };
 
-  // Required AAMVA fields
+  // Required AAMVA fields (22 mandatory for full DL)
   const REQUIRED_FIELDS = [
-    'DCS', 'DAC', 'DAJ', 'DAQ', 'DBB', 'DBA', 'DBD'
+    'DCS', 'DAC', 'DBB', 'DBA', 'DBD',
+    'DBC', 'DAY', 'DAU', 'DAZ', 'DAW',
+    'DAG', 'DAI', 'DAJ', 'DAK',
+    'DAQ', 'DCF', 'DCG',
+    'DCA', 'DCB', 'DCD',
+    'DDE', 'DDF', 'DDG'
   ];
 
   // All AAMVA fields for completeness check
