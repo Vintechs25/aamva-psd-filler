@@ -684,18 +684,105 @@
     generateBarcodePreview();
   }
 
-  // Download barcode as PNG
-  function downloadBarcode() {
-    if (!barcodeWidgetState.canvas) return;
+  // Download barcode as high-resolution PNG for PSD integration
+  async function downloadBarcode() {
+    if (!barcodeWidgetState.lastPayload) {
+      showToast('No barcode to download. Generate one first.', 'warning');
+      return;
+    }
     
-    const canvas = barcodeWidgetState.canvas;
-    const dataUrl = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = `aamva-barcode-${new Date().toISOString().slice(0, 10)}.png`;
-    link.click();
-    
-    showToast('Barcode downloaded!', 'success');
+    try {
+      // Show loading state
+      const overlay = document.getElementById('barcodePreviewOverlay');
+      overlay?.classList.add('visible');
+      
+      // Create high-resolution canvas for print quality (300 DPI)
+      // CR80 barcode zone is typically at the bottom, we'll create at appropriate size
+      const printWidth = 3001;  // Match template width
+      const barcodeHeight = 150;  // Standard barcode height in pixels
+      
+      const printCanvas = document.createElement('canvas');
+      printCanvas.width = printWidth;
+      printCanvas.height = barcodeHeight;
+      
+      const printCtx = printCanvas.getContext('2d', { willReadFrequently: true });
+      
+      // White background for print
+      printCtx.fillStyle = '#ffffff';
+      printCtx.fillRect(0, 0, printWidth, barcodeHeight);
+      
+      // Generate barcode at high resolution
+      let barcodeImg;
+      
+      // Try bwip-js first for highest quality
+      if (window.bwipjs) {
+        const tempCanvas = document.createElement('canvas');
+        await new Promise((resolve, reject) => {
+          try {
+            bwipjs.toCanvas(tempCanvas, {
+              bcid: 'pdf417',
+              text: barcodeWidgetState.lastPayload,
+              scale: 4,  // High scale for 300 DPI
+              width: printWidth,
+              height: barcodeHeight,
+              eclevel: 5,
+              columns: 14
+            });
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+        barcodeImg = tempCanvas;
+      } else {
+        // Fallback to API
+        barcodeImg = await generateBarcodeImage(
+          barcodeWidgetState.lastPayload,
+          printWidth,
+          barcodeHeight
+        );
+      }
+      
+      // Draw barcode on print canvas
+      if (barcodeImg instanceof HTMLCanvasElement) {
+        printCtx.drawImage(barcodeImg, 0, 0, printWidth, barcodeHeight);
+      } else if (barcodeImg instanceof HTMLImageElement) {
+        printCtx.drawImage(barcodeImg, 0, 0, printWidth, barcodeHeight);
+      } else {
+        // Last fallback: use display canvas
+        printCtx.drawImage(
+          barcodeWidgetState.canvas,
+          0, 0, printWidth, barcodeHeight
+        );
+      }
+      
+      // Convert to high-quality PNG
+      const dataUrl = printCanvas.toDataURL('image/png', 1.0);
+      
+      // Create download link
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `aamva-barcode-${new Date().toISOString().slice(0, 10)}-300dpi.png`;
+      link.click();
+      
+      // Hide loading
+      overlay?.classList.remove('visible');
+      showToast('High-resolution barcode downloaded (300 DPI)!', 'success');
+      
+    } catch (error) {
+      console.error('Error downloading barcode:', error);
+      const overlay = document.getElementById('barcodePreviewOverlay');
+      overlay?.classList.remove('visible');
+      showToast('Failed to download barcode. Using display version.', 'warning');
+      
+      // Fallback to original method
+      const canvas = barcodeWidgetState.canvas;
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `aamva-barcode-${new Date().toISOString().slice(0, 10)}.png`;
+      link.click();
+    }
   }
 
   // Show toast notification
