@@ -427,8 +427,8 @@
         columns: 14
       };
       
-      // Clear canvas
-      barcodeWidgetState.context.fillStyle = '#0a0a0a';
+      // Clear canvas with white background for barcode visibility
+      barcodeWidgetState.context.fillStyle = '#ffffff';
       barcodeWidgetState.context.fillRect(0, 0, canvas.width, canvas.height);
       
       // Generate barcode image
@@ -506,11 +506,19 @@
       if (!response.ok) throw new Error('Failed to generate barcode');
       
       const data = await response.json();
+      console.log('Barcode API response:', { hasPreview: !!data.previewBase64, previewLength: data.previewBase64?.length });
+      
       if (data.previewBase64) {
         const img = new Image();
         await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
+          img.onload = () => {
+            console.log('Barcode image loaded:', { width: img.width, height: img.height });
+            resolve(img);
+          };
+          img.onerror = (err) => {
+            console.error('Barcode image failed to load:', err);
+            reject(err);
+          };
           img.src = data.previewBase64;
         });
         return img;
@@ -543,8 +551,8 @@
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     
-    // Background
-    ctx.fillStyle = '#1e293b';
+    // Background - white for barcode visibility
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
     
     // Pattern
@@ -555,16 +563,16 @@
     for (let x = 0; x < width; x += barWidth + barSpacing) {
       const barHeightVar = barHeight * (0.7 + Math.random() * 0.6);
       const y = (height - barHeightVar) / 2;
-      ctx.fillStyle = Math.random() > 0.5 ? '#334155' : '#475569';
+      ctx.fillStyle = Math.random() > 0.5 ? '#000000' : '#333333';
       ctx.fillRect(x, y, barWidth, barHeightVar);
     }
     
     // Border
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = '#cccccc';
     ctx.strokeRect(0, 0, width, height);
     
     // Label
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#666666';
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('PDF417 Preview', width / 2, height / 2);
