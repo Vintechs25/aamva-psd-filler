@@ -760,6 +760,38 @@
     if (window.CelebrationEffects && window.CelebrationEffects.trigger) {
       window.CelebrationEffects.trigger(score);
     }
+    
+    // Trigger particle effects
+    if (window.ParticleEffects) {
+      window.ParticleEffects.burst(window.innerWidth / 2, window.innerHeight / 2);
+      for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+          window.ParticleEffects.firework(
+            Math.random() * window.innerWidth,
+            window.innerHeight
+          );
+        }, i * 300);
+      }
+    }
+    
+    // Dispatch custom event for other components
+    window.dispatchEvent(new CustomEvent('compliance-success', {
+      detail: { score, timestamp: Date.now() }
+    }));
+    
+    // Show success notification
+    if (window.StatusBar) {
+      window.StatusBar.showNotification(
+        `✓ 100% AAMVA Compliant! Score: ${score}%`,
+        'success',
+        5000
+      );
+    }
+    
+    // Show loading overlay success briefly
+    if (window.LoadingOverlay) {
+      window.LoadingOverlay.showSuccess(`100% Compliant! Score: ${score}%`, 2000);
+    }
   }
 
   // Expose API

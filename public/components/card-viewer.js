@@ -295,7 +295,9 @@
     
     uvToggleBtn?.classList.toggle('active', cardViewerState.uvEnabled);
     uvOverlay?.classList.toggle('visible', cardViewerState.uvEnabled);
-    uvToggleLabel?.textContent && (uvToggleLabel.textContent = cardViewerState.uvEnabled ? 'UV Light: ON' : 'UV Light: OFF');
+    if (uvToggleLabel) {
+      uvToggleLabel.textContent = cardViewerState.uvEnabled ? 'UV Light: ON' : 'UV Light: OFF';
+    }
     
     // Apply UV effect to images
     applyUVEffect(cardViewerState.uvEnabled);
@@ -469,13 +471,15 @@
     `;
 
     const styles = {
-      info: 'bg-blue-600/90 text-blue-100 border border-blue-500/30',
-      success: 'bg-emerald-600/90 text-emerald-100 border border-emerald-500/30',
-      warning: 'bg-amber-600/90 text-amber-100 border border-amber-500/30',
-      error: 'bg-red-600/90 text-red-100 border border-red-500/30'
+      info: ['bg-blue-600/90', 'text-blue-100', 'border', 'border-blue-500/30'],
+      success: ['bg-emerald-600/90', 'text-emerald-100', 'border', 'border-emerald-500/30'],
+      warning: ['bg-amber-600/90', 'text-amber-100', 'border', 'border-amber-500/30'],
+      error: ['bg-red-600/90', 'text-red-100', 'border', 'border-red-500/30']
     };
 
-    toast.classList.add(styles[type]);
+    if (styles[type]) {
+      toast.classList.add(...styles[type]);
+    }
     document.body.appendChild(toast);
     
     setTimeout(() => toast.remove(), 5000);
