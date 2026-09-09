@@ -1,0 +1,312 @@
+/* Live Barcode Preview Widget Styles */
+
+/* Main widget container */
+#barcodePreviewWidget {
+  position: fixed;
+  bottom: 6rem;
+  right: 6rem;
+  width: 280px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+  z-index: 50;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+#barcodePreviewWidget.hidden {
+  transform: translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Header */
+#barcodePreviewWidget .widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+#barcodePreviewWidget .header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#barcodePreviewWidget .header-icon {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(16, 185, 129, 0.2));
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#barcodePreviewWidget .header-icon i {
+  width: 20px;
+  height: 20px;
+  color: #10b981;
+}
+
+#barcodePreviewWidget .header-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+#barcodePreviewWidget .header-subtitle {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin: 2px 0 0 0;
+}
+
+#barcodePreviewWidget .header-controls {
+  display: flex;
+  gap: 8px;
+}
+
+#barcodePreviewWidget .control-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#barcodePreviewWidget .control-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+#barcodePreviewWidget .control-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+/* Barcode container */
+#barcodePreviewContainer {
+  padding: 16px;
+  background: #0a0a0a;
+  border-radius: 12px;
+  margin: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+#barcodePreviewCanvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+#barcodePreviewOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#barcodePreviewOverlay.visible {
+  opacity: 1;
+}
+
+#barcodePreviewOverlay i {
+  width: 48px;
+  height: 48px;
+  color: #ffffff;
+  opacity: 0.5;
+}
+
+/* Info section */
+#barcodeInfoSection {
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+#barcodeInfoGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.info-label {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #10b981;
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
+.info-value.warning {
+  color: #f59e0b;
+}
+
+.info-value.error {
+  color: #ef4444;
+}
+
+/* Minimized widget */
+#barcodePreviewMinimized {
+  position: fixed;
+  bottom: 6rem;
+  right: 6rem;
+  width: 56px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px -12px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+  z-index: 50;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#barcodePreviewMinimized.hidden {
+  display: none;
+}
+
+#barcodePreviewMinimized .minimized-content {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#barcodePreviewMinimized .minimized-icon {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(16, 185, 129, 0.2));
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#barcodePreviewMinimized .minimized-icon i {
+  width: 18px;
+  height: 18px;
+  color: #10b981;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #barcodePreviewWidget {
+    width: calc(100vw - 2rem);
+    bottom: 12rem;
+    right: 1rem;
+    left: 1rem;
+  }
+
+  #barcodePreviewMinimized {
+    bottom: 12rem;
+    right: 1rem;
+    width: 48px;
+  }
+
+  #barcodeInfoGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Loading state */
+#barcodePreviewWidget.loading #barcodePreviewContainer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(16, 185, 129, 0.3);
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: barcodeSpin 0.8s linear infinite;
+}
+
+@keyframes barcodeSpin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Success state glow */
+#barcodePreviewWidget.valid {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 30px rgba(16, 185, 129, 0.2);
+}
+
+#barcodePreviewWidget.invalid {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 30px rgba(239, 68, 68, 0.2);
+}
+
+/* Tooltip */
+.barcode-tooltip {
+  position: absolute;
+  bottom: 100%;
+  right: 20%;
+  transform: translateY(-8px);
+  background: rgba(15, 23, 42, 0.98);
+  color: #cbd5e1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 60;
+}
+
+.barcode-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 20%;
+  width: 8px;
+  height: 8px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-top: none;
+  border-right: none;
+  transform: rotate(-45deg) translate(50%, -50%);
+}
+
+#barcodePreviewWidget:hover .barcode-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-4px);
+}

@@ -649,6 +649,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Barcode Preview Toggle
+  const toggleBarcodePreview = document.getElementById('toggleBarcodePreview');
+  if (toggleBarcodePreview) {
+    toggleBarcodePreview.addEventListener('click', () => {
+      if (window.BarcodePreview) {
+        window.BarcodePreview.toggle();
+      }
+    });
+  }
+
   function loadProfileData(data) {
     if (!data) return;
     for (const [k, v] of Object.entries(data)) {
