@@ -1,0 +1,315 @@
+/* AAMVA Compliance Checklist Component Styles */
+
+/* Widget positioning and base styles */
+#complianceChecklistWidget,
+#complianceChecklistMinimized {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#complianceChecklistWidget {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+#complianceChecklistWidget.hidden {
+  transform: translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#complianceChecklistMinimized.hidden {
+  display: none;
+}
+
+/* Custom scrollbar for checklist */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 9999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.6);
+  border-radius: 9999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.8);
+}
+
+/* Compliance item styles */
+.compliance-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.compliance-item:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.compliance-status {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+/* Status colors */
+.compliance-status.empty {
+  background: rgba(100, 116, 139, 0.3);
+  box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.3);
+}
+
+.compliance-status.valid {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.compliance-status.invalid {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  animation: pulse-invalid 1s ease-in-out infinite;
+}
+
+.compliance-status.warning {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+
+@keyframes pulse-invalid {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
+
+/* Field tag and name */
+.compliance-tag {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.65rem;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.4);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  letter-spacing: 0.05em;
+}
+
+.compliance-name {
+  flex: 1;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Field value preview */
+.compliance-value {
+  font-size: 0.7rem;
+  color: #64748b;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  max-width: 8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compliance-value.valid {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.compliance-value.invalid {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Progress bar animations */
+#complianceProgressBar {
+  background-size: 200% auto;
+}
+
+/* Tooltip for compliance items */
+.compliance-item:hover .compliance-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.compliance-tooltip {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 0.5rem;
+  background: rgba(15, 23, 42, 0.95);
+  color: #cbd5e1;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  z-index: 10;
+}
+
+.compliance-tooltip::before {
+  content: '';
+  position: absolute;
+  right: -0.375rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.75rem;
+  height: 0.75rem;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-right: none;
+  border-top: none;
+  transform: rotate(-45deg) translateY(-50%) translateX(50%);
+}
+
+/* Button interactions */
+#autoCalculateBtn,
+#validateAllBtn {
+  transition: all 0.2s ease;
+}
+
+#autoCalculateBtn:hover,
+#validateAllBtn:hover {
+  transform: translateY(-1px);
+}
+
+#autoCalculateBtn:active,
+#validateAllBtn:active {
+  transform: translateY(0);
+}
+
+/* Success state for validation button */
+#validateAllBtn.success {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #10b981 !important;
+}
+
+#validateAllBtn.success:hover {
+  background: rgba(16, 185, 129, 0.3) !important;
+}
+
+/* Section headers in checklist */
+.compliance-section-header {
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.compliance-section-header::before {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.2), transparent);
+  margin-bottom: 0.5rem;
+}
+
+.compliance-section-title {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Count badges */
+#complianceCount,
+#optionalCount {
+  color: #cbd5e1;
+}
+
+#compliancePercentage {
+  font-size: 0.875rem;
+}
+
+/* Loading state */
+#validateAllBtn.loading::after {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 0.5rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #complianceChecklistWidget {
+    width: calc(100vw - 2rem);
+    bottom: 10rem;
+    right: 1rem;
+  }
+  
+  #complianceChecklistMinimized {
+    bottom: 1rem;
+    right: 1rem;
+  }
+}
+
+/* Glow effect on high compliance */
+#complianceProgressBar.high-compliance {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+/* Collapsible category sections */
+.compliance-category {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.compliance-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: between;
+  padding: 0.375rem 0.5rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.compliance-category-header:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.compliance-category-icon {
+  width: 1rem;
+  height: 1rem;
+  transition: transform 0.3s ease;
+}
+
+.compliance-category.collapsed .compliance-category-icon {
+  transform: rotate(-90deg);
+}
+
+.compliance-category-items {
+  max-height: 500px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.compliance-category.collapsed .compliance-category-items {
+  max-height: 0;
+}

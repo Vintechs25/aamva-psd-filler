@@ -207,7 +207,8 @@ if (isProtectedLayer(layer.name)) {
 | 1 | Data Element Separator | LF (0x0A) | `
 ` | ✅ |
 | 2 | Record Separator | RS (0x1E) | `` | ✅ |
-| 3 | Segment Terminator | CR (0x0D) | `` | ✅ |
+| 3 | Segment Terminator | CR (0x0D) | `
+` | ✅ |
 | 4-8 | File Type | `ANSI ` | `ANSI ` | ✅ |
 | **9-14** | **IIN (Texas)** | **`636014`** | **`636014`** | ✅ **CRITICAL** |
 | 15-16 | AAMVA Version | `11` | `11` | ✅ |

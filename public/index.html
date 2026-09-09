@@ -31,6 +31,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Caveat:wght@600&family=Dancing+Script:wght@600&family=Great+Vibes&family=Homemade+Apple&family=Marck+Script&family=Monsieur+La+Doulaise&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <!-- AAMVA Compliance Checklist Component -->
+  <link rel="stylesheet" href="/components/compliance-checklist.css">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -310,6 +312,10 @@
               <option value="florida_id">Florida (State ID Card)</option>
             </select>
             <button type="button" id="btnClearForm" class="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-400 hover:text-slate-200 transition">Clear</button>
+            <button type="button" id="toggleComplianceChecklist" class="px-3 py-1.5 rounded-lg border border-emerald-700/60 bg-emerald-950/40 hover:bg-emerald-900/60 text-xs font-medium text-emerald-300 transition flex items-center gap-1.5">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>Compliance</span>
+            </button>
           </div>
         </div>
 
@@ -1175,5 +1181,8 @@
   <!-- App Scripts -->
   <script src="photopea-bridge.js"></script>
   <script src="app.js"></script>
+  
+  <!-- AAMVA Compliance Checklist Component -->
+  <script src="/components/compliance-checklist.js"></script>
 </body>
 </html>

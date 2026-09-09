@@ -632,6 +632,23 @@ document.addEventListener('DOMContentLoaded', () => {
     updateBarcodePreview();
   });
 
+  // Compliance Checklist Toggle
+  const toggleComplianceChecklist = document.getElementById('toggleComplianceChecklist');
+  if (toggleComplianceChecklist) {
+    toggleComplianceChecklist.addEventListener('click', () => {
+      const widget = document.getElementById('complianceChecklistWidget');
+      const minimized = document.getElementById('complianceChecklistMinimized');
+      
+      if (widget.classList.contains('hidden')) {
+        widget.classList.remove('hidden');
+        minimized.classList.add('hidden');
+      } else {
+        widget.classList.add('hidden');
+        minimized.classList.remove('hidden');
+      }
+    });
+  }
+
   function loadProfileData(data) {
     if (!data) return;
     for (const [k, v] of Object.entries(data)) {
